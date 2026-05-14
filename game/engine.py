@@ -106,6 +106,7 @@ class NeonHighwayEnv:
         # Progression
         self.score = 0
         self.combo = 0
+        self.greens_collected = 0
         self.elapsed = 0.0
         self.level = 1
         self.speed = C.LEVELS[0][0]
@@ -373,6 +374,7 @@ class NeonHighwayEnv:
                     self.combo += 1
                     mult_idx = min(self.combo - 1, len(C.COMBO_MULTS) - 1)
                     self.score += C.POINTS_BASE * C.COMBO_MULTS[mult_idx]
+                    self.greens_collected += 1
                 else:
                     self.combo = 0
             else:  # 'red' obstacle
@@ -413,6 +415,10 @@ class NeonHighwayEnv:
         self.phase = "gameover"
 
     # --------------------------------------------------------------- fitness
+    @property
+    def songs_completed(self) -> int:
+        return self.greens_collected // C.NOTES_PER_SONG
+
     def fitness(self) -> float:
         """
         Composite fitness function — see plan doc for rationale.
@@ -422,6 +428,8 @@ class NeonHighwayEnv:
           longer but happens to miss greens still beats one that crashes
           instantly).
         * level bonus rewards progression past the easy first 30 s.
+        * song bonus rewards finishing whole melodies (raw greens / NOTES_PER_SONG),
+          so replay videos sound musical instead of chaotic.
         * OOB penalty discourages the trivial "walk off the road" strategy.
         """
         oob_penalty = 200.0 if self._died_out_of_bounds and self.lives <= 0 else 0.0
@@ -429,6 +437,7 @@ class NeonHighwayEnv:
             float(self.score)
             + 0.1 * self._frames_alive
             + 50.0 * (self._level_reached - 1)
+            + C.SONG_BONUS * self.songs_completed
             - oob_penalty
         )
 

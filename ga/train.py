@@ -50,6 +50,7 @@ class Genome:
     score: int = 0
     frames: int = 0
     level: int = 1
+    songs: int = 0
 
 
 def make_initial_population(n: int, rng: np.random.Generator) -> List[Genome]:
@@ -76,6 +77,7 @@ def evaluate(
     genome.score = int(env.score)
     genome.frames = env._frames_alive
     genome.level = env._level_reached
+    genome.songs = int(env.songs_completed)
 
 
 # ----------------------------------------------------------------- Trainer
@@ -118,7 +120,7 @@ def train(cfg: TrainConfig, chart_callback=None) -> Genome:
     with log_path.open("w", newline="") as f:
         csv.writer(f).writerow(
             ["generation", "best", "mean", "median", "worst",
-             "best_score", "best_level", "best_frames", "elapsed_s"]
+             "best_score", "best_level", "best_frames", "best_songs", "elapsed_s"]
         )
 
     pop = make_initial_population(cfg.population_size, rng)
@@ -144,19 +146,20 @@ def train(cfg: TrainConfig, chart_callback=None) -> Genome:
             "best_score": best.score,
             "best_level": best.level,
             "best_frames": best.frames,
+            "best_songs": best.songs,
             "elapsed_s": time.time() - t_start,
         }
         with log_path.open("a", newline="") as f:
             csv.writer(f).writerow(
                 [stats[k] for k in
                  ("generation", "best", "mean", "median", "worst",
-                  "best_score", "best_level", "best_frames", "elapsed_s")]
+                  "best_score", "best_level", "best_frames", "best_songs", "elapsed_s")]
             )
         print(
             f"[gen {gen:3d}] best={stats['best']:8.1f}  mean={stats['mean']:7.1f}  "
             f"median={stats['median']:7.1f}  score={best.score}  "
             f"level={best.level}  frames={best.frames}  "
-            f"t={stats['elapsed_s']:.1f}s"
+            f"songs={best.songs}  t={stats['elapsed_s']:.1f}s"
         )
 
         if chart_callback is not None:
@@ -167,7 +170,7 @@ def train(cfg: TrainConfig, chart_callback=None) -> Genome:
             all_time_best = Genome(
                 model=build_model(),
                 fitness=best.fitness, score=best.score,
-                frames=best.frames, level=best.level,
+                frames=best.frames, level=best.level, songs=best.songs,
             )
             set_weights_into(all_time_best.model, clone_weights(best.model))
             all_time_best.model.save(str(checkpoints / "best.keras"))

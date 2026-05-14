@@ -75,3 +75,12 @@ LASER_HIT_RADIUS_SQ = 2.25  # 1.5 unit radius
 # Sim cadence — fixed step for GA determinism (chose 60 FPS like browser)
 FPS = 60
 DT = 1.0 / FPS
+
+# Approximate notes per melody on the web playlist (web_game/js/cfg.js).
+# Used to convert raw green-collection count into "songs completed" for fitness.
+# Single average — playlist is shuffled on the web, so exact per-song counts
+# aren't meaningful for training metrics.
+NOTES_PER_SONG = 40
+
+# Fitness bonus per fully completed song (raw greens // NOTES_PER_SONG).
+SONG_BONUS = 2000.0
