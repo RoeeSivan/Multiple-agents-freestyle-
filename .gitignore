@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.idea/
+.vscode/
+*.log
+logs/*.csv
+checkpoints/*.keras
+checkpoints/*.npz
+!checkpoints/.gitkeep
+*.mp4
+*.webm

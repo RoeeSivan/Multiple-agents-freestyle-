@@ -1,0 +1,385 @@
+/* ── Reset ───────────────────────────────────────────────────── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; color: #fff; touch-action: none; }
+canvas { display: block; }
+
+/* ── HUD ─────────────────────────────────────────────────────── */
+#hud {
+  position: fixed; top: 0; left: 0; width: 100%;
+  display: flex; justify-content: space-between;
+  padding: 18px 28px; pointer-events: none; z-index: 5;
+}
+.hud-block {
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,0,255,0.35);
+  padding: 8px 18px; border-radius: 4px;
+}
+.hud-label { font-size: 10px; color: #ff00ff; letter-spacing: 2px; text-transform: uppercase; }
+.hud-value { font-size: 26px; font-weight: bold; color: #fff; margin-top: 2px; }
+#hud-combo { color: #00ffff; }
+#hud-lives { color: #ff4455; letter-spacing: 4px; }
+.hud-value--level { color: #ffd700; }
+
+/* ── Level-up banner ─────────────────────────────────────────── */
+#level-banner {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 3.2rem; font-weight: 900; letter-spacing: 0.3em;
+  color: #fff; pointer-events: none; z-index: 10;
+  opacity: 0;
+}
+@keyframes level-banner-pop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  18%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  60%  { opacity: 1; transform: translate(-50%, -50%) scale(1);    }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1);    }
+}
+.level-banner--show {
+  animation: level-banner-pop 1.8s ease forwards;
+}
+
+/* ── Overlays (start / game-over screens) ────────────────────── */
+.overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(18,0,36,0.96) 0%, rgba(0,0,8,0.98) 100%);
+  z-index: 20; touch-action: pan-y;
+}
+.hidden { display: none !important; }
+
+/* ── Typography ──────────────────────────────────────────────── */
+.title {
+  font-size: 3.8rem; font-weight: 900; letter-spacing: 0.22em;
+  color: #fff;
+  text-shadow: 0 0 18px #ff00ff, 0 0 36px #ff00ff, 0 0 72px #ff00ff;
+  margin-bottom: 6px;
+}
+.title--gameover { font-size: 2.4rem; margin-bottom: 28px; }
+
+.subtitle {
+  font-size: 1.1rem; color: #00ffff; letter-spacing: 0.35em;
+  text-shadow: 0 0 10px #00ffff; margin-bottom: 48px;
+}
+
+/* ── Legend ──────────────────────────────────────────────────── */
+.legend { display: flex; gap: 32px; margin-bottom: 32px; }
+.legend-item { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; }
+.legend-box { width: 26px; height: 16px; border-radius: 3px; }
+.legend-box.green { background: #00ff88; box-shadow: 0 0 10px #00ff88; }
+.legend-box.red   { background: #ff2244; box-shadow: 0 0 10px #ff2244; }
+
+/* ── Controls reference ──────────────────────────────────────── */
+.controls-grid {
+  display: grid; grid-template-columns: auto auto;
+  gap: 6px 22px; margin-bottom: 44px; font-size: 0.82rem;
+}
+.ctrl-key  { color: #00ffff; text-align: right; font-weight: bold; }
+.ctrl-desc { color: rgba(255,255,255,0.65); }
+
+/* ── Button ──────────────────────────────────────────────────── */
+.btn {
+  padding: 13px 48px; font-size: 1.1rem;
+  font-family: 'Courier New', monospace; font-weight: bold;
+  letter-spacing: 0.22em; background: transparent;
+  color: #ff00ff; border: 2px solid #ff00ff; cursor: pointer;
+  text-transform: uppercase; transition: all 0.18s;
+  box-shadow: 0 0 18px rgba(255,0,255,0.3); touch-action: manipulation;
+}
+.btn:hover {
+  background: rgba(255,0,255,0.13);
+  box-shadow: 0 0 36px rgba(255,0,255,0.6);
+  transform: scale(1.04);
+}
+
+/* ── Game-over score display ─────────────────────────────────── */
+.final-score-label { font-size: 0.9rem; color: #ff00ff; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 8px; }
+.final-score-value { font-size: 4.5rem; font-weight: 900; color: #fff; text-shadow: 0 0 20px #ff00ff; margin-bottom: 8px; }
+.final-stats       { color: rgba(255,255,255,0.45); font-size: 0.82rem; letter-spacing: 0.15em; margin-bottom: 48px; }
+
+/* ── Flash overlay ───────────────────────────────────────────── */
+#flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; opacity: 0; }
+
+/* ── Speed lines canvas ─────────────────────────────────────── */
+#speed-lines {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 4;
+}
+
+/* ── Car select label ────────────────────────────────────────── */
+.car-select-label {
+  font-size: 0.75rem; color: #ff00ff; letter-spacing: 0.3em;
+  text-transform: uppercase; margin-bottom: 14px; margin-top: 4px;
+}
+
+/* ── Car select grid ─────────────────────────────────────────── */
+#car-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 10px; width: 400px; max-width: 88vw; margin-bottom: 32px;
+}
+
+.car-card {
+  padding: 12px 8px; border: 2px solid rgba(255,0,255,0.28);
+  border-radius: 5px; cursor: pointer; text-align: center;
+  font-family: 'Courier New', monospace; font-size: 0.72rem;
+  color: rgba(255,255,255,0.6); letter-spacing: 0.1em; text-transform: uppercase;
+  background: rgba(255,0,255,0.04); transition: border-color 0.14s, background 0.14s, transform 0.12s;
+  display: flex; align-items: center; justify-content: center;
+}
+.car-card:hover { border-color: rgba(255,0,255,0.65); color: #fff; transform: scale(1.04); }
+.car-card--selected {
+  border-color: #ff00ff; color: #ff00ff;
+  background: rgba(255,0,255,0.14);
+  box-shadow: 0 0 14px rgba(255,0,255,0.4);
+}
+
+/* ── Locked car card ─────────────────────────────────────────── */
+.car-card--locked {
+  border-color: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.02);
+  cursor: not-allowed;
+  opacity: 0.5;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.car-card--locked:hover {
+  border-color: rgba(255,255,255,0.20);
+  transform: none;
+  color: rgba(255,255,255,0.5);
+}
+.car-lock-icon  { font-size: 1.1rem; filter: grayscale(1); }
+.car-lock-label { font-size: 0.65rem; color: rgba(255,255,255,0.35); }
+.car-lock-score { font-size: 0.58rem; color: #ff00ff; opacity: 0.6; letter-spacing: 0.08em; }
+
+@keyframes locked-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(3px); }
+}
+.car-card--locked-shake { animation: locked-shake 0.4s ease; }
+
+/* ── Unlock notification ─────────────────────────────────────── */
+.unlock-notification {
+  position: fixed; top: 15%; left: 50%;
+  transform: translateX(-50%);
+  text-align: center; z-index: 50;
+  pointer-events: none;
+  animation: unlock-pop 3.5s ease forwards;
+}
+@keyframes unlock-pop {
+  0%   { opacity: 0; transform: translateX(-50%) scale(0.6); }
+  15%  { opacity: 1; transform: translateX(-50%) scale(1.05); }
+  70%  { opacity: 1; transform: translateX(-50%) scale(1);    }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(0.9); }
+}
+.unlock-icon { font-size: 2.5rem; margin-bottom: 6px; }
+.unlock-text {
+  font-size: 1rem; font-weight: 900;
+  letter-spacing: 0.35em; color: #ffd700;
+  text-shadow: 0 0 14px #ffd700, 0 0 28px #ffd700;
+}
+.unlock-name {
+  font-size: 0.85rem; color: #00ffff;
+  letter-spacing: 0.2em;
+  text-shadow: 0 0 10px #00ffff;
+  margin-top: 4px;
+}
+
+/* ── Song label (in-game, survivor mode) ─────────────────────── */
+#song-label {
+  position: fixed; top: 82px; left: 50%; transform: translateX(-50%);
+  text-align: center; pointer-events: none; z-index: 6;
+}
+#song-label-text {
+  font-family: 'Courier New', monospace; font-size: 0.78rem;
+  color: #00ffcc; letter-spacing: 0.28em; text-transform: uppercase;
+  text-shadow: 0 0 10px #00ffcc;
+  background: rgba(0,0,0,0.5); padding: 4px 16px; border-radius: 3px;
+  border: 1px solid rgba(0,255,204,0.3);
+}
+
+/* ── Mute button (always visible, above overlays) ────────────── */
+.btn-mute {
+  position: fixed; bottom: 18px; right: 22px;
+  padding: 8px 20px; font-size: 0.7rem; letter-spacing: 0.18em; z-index: 30;
+}
+.btn-mute--active { color: #00ffff; border-color: #00ffff; box-shadow: 0 0 18px rgba(0,255,255,0.35); }
+
+/* ── Leaderboard ─────────────────────────────────────────────── */
+.btn--secondary {
+  color: #00ffff; border-color: #00ffff;
+  box-shadow: 0 0 14px rgba(0,255,255,0.25); margin-top: 14px;
+}
+.btn--secondary:hover {
+  background: rgba(0,255,255,0.1);
+  box-shadow: 0 0 28px rgba(0,255,255,0.5);
+}
+.lb-panel {
+  width: 320px; max-width: 90vw; max-height: 260px; overflow-y: auto;
+  border: 1px solid rgba(255,0,255,0.2); border-radius: 5px;
+  padding: 8px 12px; background: rgba(0,0,0,0.45); margin-bottom: 18px;
+}
+.lb-panel--wide { max-height: 380px; }
+.lb-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 7px 6px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 0.88rem;
+}
+.lb-row:last-child { border-bottom: none; }
+.lb-rank { width: 38px; font-size: 0.8rem; color: rgba(255,255,255,0.38); text-align: center; }
+.lb-rank--gold   { color: #ffd700; text-shadow: 0 0 8px #ffd700; }
+.lb-rank--silver { color: #c0c0c0; text-shadow: 0 0 6px #c0c0c0; }
+.lb-rank--bronze { color: #cd7f32; text-shadow: 0 0 6px #cd7f32; }
+.lb-score { flex: 1; color: #00ffff; font-weight: bold; letter-spacing: 0.1em; text-align: right; }
+.lb-empty { color: rgba(255,255,255,0.35); font-size: 0.85rem; text-align: center; padding: 24px; }
+
+/* ── Countdown banner ────────────────────────────────────────── */
+#countdown-banner {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 7rem; font-weight: 900;
+  pointer-events: none; z-index: 25; opacity: 0;
+}
+@keyframes countdown-pop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) scale(1);   }
+  70%  { opacity: 1; transform: translate(-50%, -50%) scale(1);   }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+}
+.countdown--show { animation: countdown-pop 0.85s ease forwards; }
+
+/* ── New best badge ───────────────────────────────────────────── */
+.new-best-badge {
+  font-size: 1.1rem; font-weight: 900; letter-spacing: 0.25em;
+  color: #ffd700; text-shadow: 0 0 14px #ffd700, 0 0 28px #ffd700;
+  margin-bottom: 10px; animation: pulse-gold 0.9s ease infinite alternate;
+}
+@keyframes pulse-gold {
+  from { opacity: 0.8; transform: scale(1);    }
+  to   { opacity: 1;   transform: scale(1.06); }
+}
+
+/* ── Coin HUD ────────────────────────────────────────────────── */
+.hud-value--coins { color: #ffd700; }
+
+/* ── Wallet display (start screen) ───────────────────────────── */
+.wallet-display {
+  font-size: 0.9rem; color: #ffd700; letter-spacing: 0.2em;
+  text-shadow: 0 0 8px #ffd700; margin-bottom: 8px;
+}
+
+.start-btn-row {
+  display: flex; gap: 12px; margin-top: 8px;
+}
+
+/* ── Store ────────────────────────────────────────────────────── */
+.store-wallet {
+  font-size: 1.4rem; color: #ffd700; letter-spacing: 0.2em;
+  text-shadow: 0 0 10px #ffd700; margin-bottom: 24px;
+}
+.store-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 12px; width: 420px; max-width: 90vw; max-height: 50vh;
+  overflow-y: auto; padding: 4px;
+}
+.store-item {
+  padding: 14px 12px; border: 2px solid rgba(255,215,0,0.25);
+  border-radius: 6px; text-align: center; cursor: pointer;
+  font-family: 'Courier New', monospace; font-size: 0.75rem;
+  color: rgba(255,255,255,0.7); letter-spacing: 0.08em;
+  background: rgba(255,215,0,0.04); transition: all 0.15s;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.store-item:hover {
+  border-color: rgba(255,215,0,0.6);
+  background: rgba(255,215,0,0.1);
+  transform: scale(1.03);
+}
+.store-item--owned {
+  border-color: rgba(0,255,136,0.4);
+  opacity: 0.5; cursor: default;
+}
+.store-item--owned:hover { transform: none; }
+.store-item-name { color: #ffd700; font-weight: bold; font-size: 0.85rem; }
+.store-item-desc { color: rgba(255,255,255,0.45); font-size: 0.65rem; }
+.store-item-price { color: #ffd700; font-size: 0.9rem; margin-top: 4px; }
+.store-item-owned-badge { color: #00ff88; font-size: 0.7rem; letter-spacing: 0.15em; }
+.store-item-qty { color: #00ff88; font-size: 0.7rem; letter-spacing: 0.1em; }
+.store-item-soldout { color: #ff4444; font-size: 0.8rem; margin-top: 4px; font-weight: bold; }
+.store-item--soldout { opacity: 0.5; cursor: default; }
+.store-item--soldout:hover { transform: none; }
+
+/* ── Head Start Button ───────────────────────────────────────── */
+.head-start-btn {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  z-index: 30; padding: 14px 28px; border: 2px solid #ffd700;
+  border-radius: 8px; background: rgba(255,215,0,0.15);
+  color: #ffd700; font-family: 'Courier New', monospace; font-size: 1rem;
+  font-weight: 900; letter-spacing: 0.2em; cursor: pointer;
+  text-shadow: 0 0 10px #ffd700; box-shadow: 0 0 20px rgba(255,215,0,0.3);
+  animation: pulse-gold 0.9s ease infinite alternate;
+  transition: all 0.15s;
+}
+.head-start-btn:hover {
+  background: rgba(255,215,0,0.3);
+  box-shadow: 0 0 30px rgba(255,215,0,0.5);
+}
+
+/* ── Mobile ──────────────────────────────────────────────────── */
+.controls-touch { display: none; }
+
+@media (max-width: 600px) {
+  /* Prevent tap highlight flicker */
+  * { -webkit-tap-highlight-color: transparent; }
+
+  .overlay {
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding: 28px 18px 24px;
+  }
+
+  .title        { font-size: 2.2rem; margin-bottom: 4px; }
+  .title--gameover { font-size: 1.8rem; margin-bottom: 16px; }
+  .subtitle     { font-size: 0.85rem; margin-bottom: 24px; letter-spacing: 0.2em; }
+
+  .legend       { gap: 16px; margin-bottom: 18px; }
+  .legend-item  { font-size: 0.78rem; }
+
+  .controls-keyboard { display: none; }
+  .controls-touch    { display: grid; margin-bottom: 24px; }
+
+  .car-select-label { margin-top: 0; margin-bottom: 10px; }
+  #car-grid         { width: 100%; gap: 8px; margin-bottom: 20px; }
+  .car-card         { padding: 10px 4px; font-size: 0.65rem; color: rgba(255,255,255,0.85); }
+
+  .ctrl-desc        { color: rgba(255,255,255,0.9); }
+  .legend-item      { font-size: 0.82rem; color: #fff; }
+
+  .btn              { padding: 12px 32px; font-size: 0.95rem; }
+
+  .final-score-value { font-size: 3rem; }
+  .final-stats       { font-size: 0.74rem; margin-bottom: 16px; letter-spacing: 0.08em; }
+
+  .lb-panel         { max-height: 200px; margin-bottom: 14px; }
+
+  #hud              { padding: 10px 12px; }
+  .hud-block        { padding: 5px 10px; }
+  .hud-value        { font-size: 18px; }
+  .hud-label        { font-size: 8px; }
+
+  #level-banner     { font-size: 2rem; white-space: nowrap; }
+
+  .btn-mute         { bottom: 12px; right: 12px; padding: 7px 14px; font-size: 0.65rem; }
+
+  .car-lock-icon  { font-size: 0.9rem; }
+  .car-lock-label { font-size: 0.58rem; }
+  .car-lock-score { font-size: 0.52rem; }
+  .unlock-text    { font-size: 0.85rem; }
+  .unlock-name    { font-size: 0.72rem; }
+
+  .store-grid     { grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
+  .store-item     { padding: 10px 8px; font-size: 0.68rem; }
+  .start-btn-row  { flex-direction: column; gap: 8px; width: 100%; }
+  .start-btn-row .btn { width: 100%; }
+}
