@@ -21,6 +21,7 @@ Caveats vs. the Python clone the model trained on:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import time
@@ -58,6 +59,8 @@ def drive_web(
     max_duration_s: float = 360.0,
     headless: bool = False,
     web_game_dir: str = "web_game",
+    events_path: Optional[str] = None,
+    capture_audio_events: bool = True,
 ) -> None:
     # Defer heavy imports so the env var KERAS_BACKEND set in main.py
     # actually takes effect.
@@ -91,6 +94,15 @@ def drive_web(
             )
             page = ctx.new_page()
 
+            if capture_audio_events:
+                # Seed the audio capture hook before any web_game JS runs.
+                # audio.js reads these globals to push event metadata.
+                page.add_init_script(
+                    "window.__audioCaptureEnabled = true;"
+                    "window.__audioLog = [];"
+                    "window.__clipT0 = performance.now();"
+                )
+
             page.goto(f"http://127.0.0.1:{port}/")
             page.wait_for_function("window.__bridgeReady === true", timeout=15000)
             print("[drive-web] bridge ready")
@@ -122,6 +134,13 @@ def drive_web(
                 f"level={final['level']} elapsed={final['elapsed']:.1f}s"
             )
 
+            audio_log = []
+            if capture_audio_events:
+                try:
+                    audio_log = page.evaluate("window.__audioLog || []")
+                except Exception as e:
+                    print(f"[drive-web] could not read audio log: {e}")
+
             video_path_raw = page.video.path() if page.video else None
             ctx.close()  # flushes the video
             browser.close()
@@ -129,13 +148,28 @@ def drive_web(
         httpd.shutdown()
 
     # Move/rename the auto-generated .webm to the caller-supplied path.
+    final_clip: Optional[Path] = None
     if record_path and video_path_raw:
         dst = Path(record_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(video_path_raw, dst)
+        final_clip = dst
         print(f"[drive-web] video saved to {dst}")
     elif video_path_raw:
+        final_clip = Path(video_path_raw)
         print(f"[drive-web] video saved to {video_path_raw}")
+
+    if capture_audio_events:
+        if events_path is not None:
+            ev_dst = Path(events_path)
+        elif final_clip is not None:
+            ev_dst = final_clip.with_suffix(final_clip.suffix + ".events.json")
+        else:
+            ev_dst = None
+        if ev_dst is not None:
+            ev_dst.parent.mkdir(parents=True, exist_ok=True)
+            ev_dst.write_text(json.dumps(audio_log))
+            print(f"[drive-web] audio events ({len(audio_log)}) → {ev_dst}")
 
 
 def _control_loop(page, model, predict_action_fn, *, max_duration_s: float) -> None:

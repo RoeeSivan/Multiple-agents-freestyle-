@@ -132,6 +132,11 @@ class NeonHighwayEnv:
         self._died_out_of_bounds = False
         self._level_reached = 1
 
+        # Audio event log — (frame_idx, event_type). Consumed offline by
+        # scripts/make_evolution_video.py to synth original game sounds.
+        # Cosmetic only; fitness untouched.
+        self.events: List[Tuple[int, str]] = []
+
     # ----------------------------------------------------------------- public
     @property
     def done(self) -> bool:
@@ -182,6 +187,7 @@ class NeonHighwayEnv:
             self.lives -= 1
             self.combo = 0
             self._died_out_of_bounds = True
+            self.events.append((self._frame, "collision"))
             if self.lives <= 0:
                 self._trigger_game_over()
             return
@@ -356,16 +362,14 @@ class NeonHighwayEnv:
             elif b.type == "coin":
                 airborne = self.player_y > C.COIN_Y + 1.0
                 if in_lane and not airborne:
-                    # Coins don't add to the NN's "score" — game's score
-                    # accumulator is green-only — but they're harmless to
-                    # process for state coherence.
-                    pass
+                    self.events.append((self._frame, "coin"))
             elif b.type in ("bird", "drone"):
                 in_flight = (
                     in_lane
                     and C.BIRD_HIT_MIN_Y <= self.player_y <= C.BIRD_HIT_MAX_Y
                 )
                 if in_flight:
+                    self.events.append((self._frame, "collision"))
                     self._take_hit()
                     if self.lives <= 0:
                         return
@@ -375,11 +379,13 @@ class NeonHighwayEnv:
                     mult_idx = min(self.combo - 1, len(C.COMBO_MULTS) - 1)
                     self.score += C.POINTS_BASE * C.COMBO_MULTS[mult_idx]
                     self.greens_collected += 1
+                    self.events.append((self._frame, "green"))
                 else:
                     self.combo = 0
             else:  # 'red' obstacle
                 airborne = self.player_y > C.GROUND_Y + 0.3
                 if in_lane and not airborne:
+                    self.events.append((self._frame, "collision"))
                     self._take_hit()
                     if self.lives <= 0:
                         return
@@ -395,6 +401,7 @@ class NeonHighwayEnv:
                 if self.shielded:
                     self.shielded = False
                     continue
+                self.events.append((self._frame, "laser_hit"))
                 self._take_hit()
                 if self.lives <= 0:
                     return

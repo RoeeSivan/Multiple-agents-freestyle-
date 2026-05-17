@@ -4,6 +4,19 @@ let audioCtx   = null;
 let masterGain = null;
 let muted      = false;
 
+// Optional capture hook: when the page is opened by the NN driver, an
+// init script sets `window.__audioCaptureEnabled = true` and seeds the
+// log array. Functions push event metadata here so audio can be synthesised
+// offline (see scripts/make_evolution_video_web.py).
+function _log(type, data) {
+  if (typeof window !== 'undefined' && window.__audioCaptureEnabled) {
+    window.__audioLog.push({
+      t: performance.now() - (window.__clipT0 || 0),
+      type, ...data,
+    });
+  }
+}
+
 export function ensureAudio() {
   if (audioCtx) {
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -27,6 +40,7 @@ export function toggleMute() {
 }
 
 export function playMelodyNote(freq) {
+  _log('melody', { freq });
   const t    = audioCtx.currentTime;
   const osc  = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -42,6 +56,7 @@ export function playMelodyNote(freq) {
 
 export function playLaserShootSound() {
   if (!audioCtx) return;
+  _log('laser_shoot', {});
   const t = audioCtx.currentTime;
   const osc  = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -58,6 +73,7 @@ export function playLaserShootSound() {
 
 export function playLaserHitSound() {
   if (!audioCtx) return;
+  _log('laser_hit', {});
   const t = audioCtx.currentTime;
   // Harsh buzz + static
   const osc  = audioCtx.createOscillator();
@@ -88,6 +104,7 @@ export function playLaserHitSound() {
 
 export function playCoinSound() {
   if (!audioCtx) return;
+  _log('coin', {});
   const t = audioCtx.currentTime;
   const osc  = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -104,6 +121,7 @@ export function playCoinSound() {
 
 export function playWarpSound() {
   if (!audioCtx) return;
+  _log('warp', {});
   const t = audioCtx.currentTime;
   const dur = 1.5;
 
@@ -162,6 +180,7 @@ export function playWarpSound() {
 
 export function playCollisionSound() {
   if (!audioCtx) return;
+  _log('collision', {});
   const t = audioCtx.currentTime;
 
   // Layer 1: deep sawtooth thud (120 Hz → 30 Hz sweep)
