@@ -1,0 +1,166 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #202020; }
+    #c { display: block; width: 100vw; height: 100vh; }
+  </style>
+  <!-- Vendored three.js: bare "three" specifier resolves for GLTFExporter too -->
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFExporter } from './vendor/jsm/exporters/GLTFExporter.js';
+    import { RoomEnvironment } from './vendor/jsm/environments/RoomEnvironment.js';
+
+    const WIDTH = 1024, HEIGHT = 768;
+
+    let renderer, scene, camera, contentGroup;
+
+    function makeMaterial(o) {
+      const color = new THREE.Color(o.color || '#cccccc');
+      switch (o.material) {
+        case 'metal':
+          return new THREE.MeshStandardMaterial({ color, metalness: 1.0, roughness: 0.25 });
+        case 'glass':
+          return new THREE.MeshPhysicalMaterial({
+            color, metalness: 0, roughness: 0, transmission: 1.0,
+            thickness: 0.5, transparent: true, opacity: 0.5,
+          });
+        case 'emissive':
+          return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.0 });
+        default:
+          return new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.0 });
+      }
+    }
+
+    function makeGeometry(shape) {
+      switch (shape) {
+        case 'sphere':   return new THREE.SphereGeometry(0.5, 48, 32);
+        case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, 48);
+        case 'cone':     return new THREE.ConeGeometry(0.5, 1, 48);
+        case 'torus':    return new THREE.TorusGeometry(0.5, 0.2, 24, 48);
+        case 'plane':    return new THREE.PlaneGeometry(1, 1);
+        case 'box':
+        default:         return new THREE.BoxGeometry(1, 1, 1);
+      }
+    }
+
+    // Frame the camera so the whole content group fits nicely.
+    function frameCamera(group) {
+      const box = new THREE.Box3().setFromObject(group);
+      if (box.isEmpty()) { camera.position.set(4, 3, 6); camera.lookAt(0, 0, 0); return; }
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const radius = Math.max(size.x, size.y, size.z) * 0.5 || 1;
+      const fov = camera.fov * Math.PI / 180;
+      const dist = (radius / Math.sin(fov / 2)) * 1.6;
+      const dir = new THREE.Vector3(1, 0.7, 1).normalize();
+      camera.position.copy(center).add(dir.multiplyScalar(dist));
+      camera.near = Math.max(0.01, dist - radius * 4);
+      camera.far = dist + radius * 8;
+      camera.updateProjectionMatrix();
+      camera.lookAt(center);
+    }
+
+    // Public API called by Playwright.
+    window.buildScene = function (spec) {
+      const canvas = document.getElementById('c');
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(WIDTH, HEIGHT, false);
+      renderer.setPixelRatio(1);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(spec.background || '#202020');
+
+      // Image-based lighting so metal/glass reflect a real environment.
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+      camera = new THREE.PerspectiveCamera(45, WIDTH / HEIGHT, 0.1, 1000);
+
+      // Lighting: ambient fill + directional sun with shadows.
+      scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.35);
+      scene.add(hemi);
+      const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+      const sd = spec.sun_dir || [-1, -1, -0.5];
+      sun.position.set(-sd[0] * 10, -sd[1] * 10, -sd[2] * 10);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 60;
+      sun.shadow.camera.left = -15; sun.shadow.camera.right = 15;
+      sun.shadow.camera.top = 15; sun.shadow.camera.bottom = -15;
+      scene.add(sun);
+
+      contentGroup = new THREE.Group();
+      scene.add(contentGroup);
+
+      for (const o of (spec.objects || [])) {
+        const mesh = new THREE.Mesh(makeGeometry(o.shape), makeMaterial(o));
+        const p = o.position || [0, 0, 0];
+        const r = o.rotation || [0, 0, 0];
+        const s = o.scale || [1, 1, 1];
+        mesh.position.set(p[0], p[1], p[2]);
+        mesh.rotation.set(r[0], r[1], r[2]);
+        mesh.scale.set(s[0], s[1], s[2]);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.name = o.name || o.shape || 'object';
+        contentGroup.add(mesh);
+      }
+
+      // Ground plane (receives shadows). Not part of exported asset group.
+      if (spec.ground !== false) {
+        const ground = new THREE.Mesh(
+          new THREE.PlaneGeometry(200, 200),
+          new THREE.MeshStandardMaterial({ color: 0x9099a2, roughness: 1.0 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = (new THREE.Box3().setFromObject(contentGroup).min.y) || 0;
+        ground.receiveShadow = true;
+        ground.name = 'ground';
+        scene.add(ground);
+      }
+
+      frameCamera(contentGroup);
+
+      // Render a few frames, then signal ready.
+      let frame = 0;
+      function tick() {
+        renderer.render(scene, camera);
+        if (++frame < 4) requestAnimationFrame(tick);
+        else window.renderReady = true;
+      }
+      tick();
+    };
+
+    // Export ONLY the content group (no ground/lights) as binary glb -> base64.
+    window.exportGLB = function () {
+      return new Promise((resolve, reject) => {
+        const exporter = new GLTFExporter();
+        exporter.parse(
+          contentGroup,
+          (result) => {
+            const bytes = new Uint8Array(result);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+            resolve(btoa(binary));
+          },
+          (err) => reject(err),
+          { binary: true }
+        );
+      });
+    };
+
+    window.sceneReady = true; // buildScene is now defined
+  </script>
+</body>
+</html>

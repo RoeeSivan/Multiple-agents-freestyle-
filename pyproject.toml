@@ -1,0 +1,28 @@
+[project]
+name = "sms-3d-builder"
+version = "0.1.0"
+description = "SMS-driven 3D asset builder: text a number, get a game-ready .glb. PydanticAI multi-agent + Saperly + Three.js."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic-ai>=0.0.20",
+    "openai>=1.54.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "playwright>=1.48.0",
+    "python-dotenv>=1.0.1",
+    "httpx>=0.27.0",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
