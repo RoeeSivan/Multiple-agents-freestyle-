@@ -83,6 +83,31 @@ class SaperlyClient:
                 raise SaperlyError(f"send_sms failed {r.status_code}: {r.text}")
             return r.json()
 
+    async def record_consent(
+        self, phone_number: str, consent_type: str = "explicit_outbound", source: str = "owner_provided"
+    ) -> dict:
+        """Record outbound-SMS consent for (line, phone_number).
+
+        Saperly blocks outbound SMS unless the recipient texted us in the last
+        24h or a consent record exists. The real product flow is inbound-first
+        (a user texts us, opening the window); this is for owner-initiated sends.
+        """
+        line_id = await self.resolve_line_id()
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(
+                f"{self.base}/consent",
+                headers=self._headers,
+                json={
+                    "line_id": line_id,
+                    "phone_number": phone_number,
+                    "consent_type": consent_type,
+                    "source": source,
+                },
+            )
+            if r.status_code >= 400:
+                raise SaperlyError(f"record_consent failed {r.status_code}: {r.text}")
+            return r.json()
+
     async def update_line(self, **fields) -> dict:
         """PATCH line config (e.g. webhook_url, mode)."""
         line_id = await self.resolve_line_id()
