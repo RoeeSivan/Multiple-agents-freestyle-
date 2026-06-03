@@ -143,18 +143,31 @@
     };
 
     // Export ONLY the content group (no ground/lights) as binary glb -> base64.
+    // Game-finalize: recenter on X/Z and drop to ground (min Y -> 0) so the asset
+    // imports at the origin, resting on the floor, in any engine. The render is
+    // already captured, so moving the group here doesn't affect the screenshot.
     window.exportGLB = function () {
       return new Promise((resolve, reject) => {
+        const box = new THREE.Box3().setFromObject(contentGroup);
+        const center = box.getCenter(new THREE.Vector3());
+        const prev = contentGroup.position.clone();
+        contentGroup.position.x -= center.x;
+        contentGroup.position.z -= center.z;
+        contentGroup.position.y -= box.min.y;
+        contentGroup.updateMatrixWorld(true);
+
+        const restore = () => { contentGroup.position.copy(prev); contentGroup.updateMatrixWorld(true); };
         const exporter = new GLTFExporter();
         exporter.parse(
           contentGroup,
           (result) => {
+            restore();
             const bytes = new Uint8Array(result);
             let binary = '';
             for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
             resolve(btoa(binary));
           },
-          (err) => reject(err),
+          (err) => { restore(); reject(err); },
           { binary: true }
         );
       });

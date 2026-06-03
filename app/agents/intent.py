@@ -32,8 +32,15 @@ COMPOSITION
   * tree = a thin tall cylinder (trunk) + a sphere or cone (foliage) on top.
   * house = a box (walls) + a cone or pyramid-like box (roof).
 - Give every object a clear snake_case `name` (e.g. car_body, front_left_wheel).
-- Spread objects so they don't unintentionally overlap; keep everything resting
-  on or above the ground.
+- CONNECT the parts of a single object — they must touch, not float. A chair's
+  backrest sits on the rear edge of the seat and its bottom reaches the seat top;
+  a tree's foliage overlaps the top of the trunk; wheels touch both the body and
+  the ground. Overlap parts slightly rather than leaving gaps. Double-check the
+  math: for a part of height h resting on top of another whose top is at y=T, set
+  position.y = T + h/2.
+- Everything rests on the ground (its lowest point at y=0) unless it is meant to
+  be elevated; nothing should sink below the ground.
+- Separate DISTINCT objects so they don't unintentionally collide.
 
 STYLE
 - Use realistic hex `color`s.
