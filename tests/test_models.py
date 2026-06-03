@@ -1,17 +1,24 @@
-"""Offline schema/parse tests — no network or browser needed."""
+"""Offline schema/parse tests — no network, Blender, or API needed."""
 from app.messaging import InboundSMS
-from app.models import Obj, SceneSpec
+from app.models import BuildSpec, Clarification, Critique, ObjectBrief
 from app.state import SessionStore
 
 
-def test_scenespec_defaults():
-    s = SceneSpec(objects=[Obj(name="cube", shape="box")])
-    assert s.ground is True
-    assert s.background.startswith("#")
+def test_buildspec_defaults():
+    s = BuildSpec(title="car", objects=[ObjectBrief(name="car", description="a red sports car")])
+    assert s.environment  # has a sensible default
+    assert s.camera_hint
     o = s.objects[0]
-    assert o.color == "#cccccc"
-    assert o.position == (0.0, 0.0, 0.0)
-    assert o.material == "standard"
+    assert o.approx_size_m == 1.0
+    assert o.material_hint == ""
+    assert o.position_hint == ""
+
+
+def test_clarification_and_critique_defaults():
+    c = Clarification(needs_info=False)
+    assert c.question == ""
+    cr = Critique(matches_request=True)
+    assert cr.issues == [] and cr.patch_instructions == ""
 
 
 def test_inbound_parse_strips_and_maps():

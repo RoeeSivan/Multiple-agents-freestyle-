@@ -1,10 +1,11 @@
 [project]
 name = "sms-3d-builder"
 version = "0.1.0"
-description = "SMS-driven 3D asset builder: text a number, get a game-ready .glb. PydanticAI multi-agent + Saperly + Three.js."
+description = "SMS-driven 3D asset builder: text a number, get a game-ready .glb. PydanticAI multi-agent + Saperly + Blender MCP (Hyper3D Rodin)."
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai>=0.0.20",
+    "pydantic-ai>=1.0",
+    "mcp>=1.0",
     "openai>=1.54.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",

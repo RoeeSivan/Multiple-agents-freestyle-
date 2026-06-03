@@ -1,33 +1,45 @@
-"""Orchestration: the multi-agent build loop.
+"""Orchestration: the multi-agent build loop (the "brain").
 
 Coordinates the agents in a programmatic hand-off (a PydanticAI multi-agent
-pattern): IntentAgent proposes a SceneSpec -> renderer draws it -> VisionCritic
-judges the image -> if not good enough, its feedback goes back to IntentAgent.
-Repeats up to `max_iterations`.
+pattern): PlannerAgent turns the request into a typed BuildSpec -> BuilderAgent
+realizes it in a live Blender (Hyper3D Rodin meshes + PolyHaven) -> we render the
+viewport -> VisionCritic judges the image -> if not good enough, its feedback
+goes back to the BuilderAgent to refine the live scene. Repeats up to
+`max_iterations`.
+
+There is one Blender with one scene, so the whole Blender interaction is
+serialized behind `_BUILD_LOCK`.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agents.builder import build_scene
 from app.agents.critic import critique_render
 from app.agents.intent import build_spec
 from app.config import OUT_DIR, settings
-from app.models import Critique, SceneSpec
-from app.rendering import RenderResult, render_scene
+from app.models import BuildReport, BuildSpec, Critique
+from app.rendering import blender_io
+
+# One Blender, one live scene -> only one build may touch it at a time.
+_BUILD_LOCK = asyncio.Lock()
 
 
 @dataclass
 class BuildResult:
-    spec: SceneSpec
-    render: RenderResult
+    spec: BuildSpec
+    report: BuildReport
+    png: Path
+    glb: Path
     iterations: int
     critique: Critique | None  # final critic verdict (None if loop disabled)
 
 
 async def build_3d(
     request: str,
-    current: SceneSpec | None = None,
+    current: BuildSpec | None = None,
     out_dir: Path = OUT_DIR,
     basename: str = "model",
     max_iterations: int | None = None,
@@ -35,22 +47,35 @@ async def build_3d(
 ) -> BuildResult:
     """Build (or edit) a 3D scene from `request`, refining via the critic loop."""
     max_iter = max_iterations if max_iterations is not None else settings.max_iterations
+    is_edit = current is not None
 
+    # Planning needs no Blender, so do it before grabbing the lock.
     spec = await build_spec(request, current)
-    render = await render_scene(spec, out_dir, basename)
-    iterations = 1
-    critique: Critique | None = None
 
-    if not refine:
-        return BuildResult(spec, render, iterations, None)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png_path = out_dir / f"{basename}.png"
+    glb_path = out_dir / f"{basename}.glb"
 
-    while iterations < max_iter:
-        critique = await critique_render(request, spec, render.png)
-        if critique.matches_request:
-            break
-        # Hand the critic's feedback back to the designer and re-render.
-        spec = await build_spec(critique.patch_instructions, current=spec)
-        render = await render_scene(spec, out_dir, basename)
-        iterations += 1
+    async with _BUILD_LOCK:
+        if not is_edit:
+            await asyncio.to_thread(blender_io.clear_scene)
 
-    return BuildResult(spec, render, iterations, critique)
+        report = await build_scene(spec, is_edit=is_edit)
+        await asyncio.to_thread(blender_io.render_png, png_path)
+        iterations = 1
+        critique: Critique | None = None
+
+        if refine:
+            while iterations < max_iter:
+                critique = await critique_render(request, spec, png_path)
+                if critique.matches_request:
+                    break
+                # Hand the critic's feedback back to the builder; re-render.
+                report = await build_scene(spec, feedback=critique.patch_instructions)
+                await asyncio.to_thread(blender_io.render_png, png_path)
+                iterations += 1
+
+        await asyncio.to_thread(blender_io.export_glb, glb_path)
+
+    return BuildResult(spec, report, png_path, glb_path, iterations, critique)

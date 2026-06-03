@@ -1,14 +1,14 @@
 """In-memory per-sender session state.
 
 Keyed by phone number so a reply ("make it blue") edits that sender's current
-SceneSpec instead of starting over. Also feeds the live dashboard.
+BuildSpec instead of starting over. Also feeds the live dashboard.
 """
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 
-from app.models import SceneSpec
+from app.models import BuildSpec
 
 
 @dataclass
@@ -22,12 +22,16 @@ class Turn:
 class Session:
     phone: str
     sid: str
-    spec: SceneSpec | None = None
+    spec: BuildSpec | None = None
     turns: list[Turn] = field(default_factory=list)
     iterations: int = 0
     status: str = "idle"  # idle | building | done | error
     updated_at: float = field(default_factory=time.time)
-    render_version: int = 0  # bumped each render for cache-busting
+    render_version: int = 0  # bumped each build for cache-busting
+    # InfoAgent flow: when we've asked one clarifying question, stash the original
+    # request here so the next inbound reply is merged into it (we ask at most once).
+    awaiting_clarification: bool = False
+    pending_request: str = ""
 
     def add_turn(self, role: str, text: str) -> None:
         self.turns.append(Turn(role, text))

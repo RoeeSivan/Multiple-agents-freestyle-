@@ -1,41 +1,77 @@
-"""The structured 3D-scene contract.
+"""The structured contracts that flow between agents.
 
-`SceneSpec` is the single source of truth that flows through the whole system:
-IntentAgent produces/edits it, the renderer turns it into a Three.js scene, and
-the VisionCritic reasons about the rendered result. Keeping one typed schema is
-what lets the agents collaborate reliably.
+The system no longer composes scenes from primitives. The single source of
+truth is now a `BuildSpec`: a typed, high-level plan that the PlannerAgent
+produces from free text and the BuilderAgent realizes inside a live Blender via
+Hyper3D Rodin (text -> real mesh) + PolyHaven (materials/HDRI). Keeping one
+typed plan is what lets the agents collaborate reliably.
+
+The actual geometry lives in Blender, not here — `BuildSpec` describes *intent*
+(what objects, how big, what mood), and the builder turns that into meshes.
 """
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
-Shape = Literal["box", "sphere", "cylinder", "cone", "torus", "plane"]
-Material = Literal["standard", "metal", "glass", "emissive"]
 
-Vec3 = tuple[float, float, float]
+class ObjectBrief(BaseModel):
+    """One object to generate, described richly enough for a text->3D model."""
+
+    name: str = Field(description="snake_case scene identifier, e.g. 'sports_car'")
+    description: str = Field(
+        description="a vivid, self-contained English prompt for a text-to-3D "
+        "generator, e.g. 'a sleek red two-door sports car with black wheels'. "
+        "Describe ONE object; no scene layout or other objects here."
+    )
+    approx_size_m: float = Field(
+        default=1.0,
+        description="target size of the object's LONGEST dimension in meters. "
+        "Generated meshes are normalized, so this drives rescaling.",
+    )
+    material_hint: str = Field(
+        default="",
+        description="optional surface note, e.g. 'glossy car paint', 'rough oak "
+        "wood', 'brushed metal'; guides material/PolyHaven tweaks",
+    )
+    position_hint: str = Field(
+        default="",
+        description="optional placement relative to the scene/other objects, "
+        "e.g. 'centered on the ground', 'to the left of the car'",
+    )
 
 
-class Obj(BaseModel):
-    """One primitive mesh in the scene. Units are meters (1 unit = 1 m)."""
+class BuildSpec(BaseModel):
+    """A complete, typed build plan — the contract between planner and builder."""
 
-    name: str = Field(description="snake_case identifier, e.g. 'car_body'")
-    shape: Shape = "box"
-    position: Vec3 = (0.0, 0.0, 0.0)
-    rotation: Vec3 = (0.0, 0.0, 0.0)  # radians, XYZ
-    scale: Vec3 = (1.0, 1.0, 1.0)
-    color: str = Field(default="#cccccc", description="hex color like '#e23b3b'")
-    material: Material = "standard"
+    title: str = Field(description="short human label for the scene, e.g. 'red sports car'")
+    objects: list[ObjectBrief] = Field(default_factory=list)
+    environment: str = Field(
+        default="studio neutral",
+        description="lighting/world mood, e.g. 'outdoor sunny', 'studio neutral', "
+        "'nighttime city'; guides HDRI/world choice",
+    )
+    camera_hint: str = Field(
+        default="three-quarter front view",
+        description="how to frame the shot, e.g. 'three-quarter front view'",
+    )
 
 
-class SceneSpec(BaseModel):
-    """A complete renderable scene."""
+class Clarification(BaseModel):
+    """InfoAgent verdict: is the request too ambiguous to build well?"""
 
-    objects: list[Obj] = Field(default_factory=list)
-    background: str = Field(default="#202b38", description="hex background color")
-    ground: bool = Field(default=True, description="add a shadow-catching ground plane")
-    sun_dir: Vec3 = Field(default=(-1.0, -1.0, -0.5), description="directional light direction")
+    needs_info: bool = Field(description="True only if a key detail is genuinely missing")
+    question: str = Field(
+        default="",
+        description="one short, friendly SMS question gathering the MOST important "
+        "missing detail(s); empty when needs_info is False",
+    )
+
+
+class BuildReport(BaseModel):
+    """BuilderAgent summary of what it actually built in Blender."""
+
+    objects_built: list[str] = Field(default_factory=list, description="scene object names")
+    notes: str = Field(default="", description="brief notes on what was done / any issues")
 
 
 class Critique(BaseModel):
@@ -45,5 +81,6 @@ class Critique(BaseModel):
     issues: list[str] = Field(default_factory=list, description="what is wrong, if anything")
     patch_instructions: str = Field(
         default="",
-        description="concrete natural-language edits for IntentAgent to apply; empty if matches",
+        description="concrete natural-language fixes for the BuilderAgent to apply; "
+        "empty if matches",
     )

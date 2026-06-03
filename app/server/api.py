@@ -14,7 +14,7 @@ from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.agents import route_message
+from app.agents import info_assess, route_message
 from app.config import OUT_DIR, WEB_DIR, settings
 from app.messaging import InboundSMS, SaperlyError, saperly
 from app.pipeline import build_3d
@@ -60,21 +60,40 @@ async def handle_inbound(sms: InboundSMS) -> None:
     async with lock:
         session.add_turn("user", sms.message)
 
-        # RouterAgent triages first so greetings/questions don't burn a render.
-        route = await route_message(sms.message, has_scene=session.spec is not None)
-        if route.action == "chat":
-            reply = route.reply or "Text me a 3D scene to build, e.g. 'a red sports car on a beach'."
-            session.add_turn("agent", reply)
-            await _safe_send(sms.from_number, reply)
-            return
+        if session.awaiting_clarification:
+            # Second leg of a clarifying exchange: merge the answer and build.
+            request = f"{session.pending_request} — {sms.message}"
+            session.awaiting_clarification = False
+            session.pending_request = ""
+            current = session.spec  # edit if a scene already exists, else fresh
+        else:
+            # RouterAgent triages first so greetings/questions don't burn a render.
+            route = await route_message(sms.message, has_scene=session.spec is not None)
+            if route.action == "chat":
+                reply = route.reply or "Text me a 3D scene to build, e.g. 'a red sports car on a beach'."
+                session.add_turn("agent", reply)
+                await _safe_send(sms.from_number, reply)
+                return
+
+            # InfoAgent: ask one clarifying question only if genuinely too vague.
+            clar = await info_assess(sms.message, has_scene=session.spec is not None)
+            if clar.needs_info and clar.question:
+                session.awaiting_clarification = True
+                session.pending_request = sms.message
+                session.add_turn("agent", clar.question)
+                await _safe_send(sms.from_number, clar.question)
+                return
+
+            request = sms.message
+            current = session.spec if route.action == "edit" else None
 
         session.status = "building"
-        await _safe_send(sms.from_number, "🛠 Building your 3D scene… link coming shortly.")
+        await _safe_send(sms.from_number, "🛠 Building your 3D model… link coming shortly.")
 
         try:
             result = await build_3d(
-                sms.message,
-                current=session.spec if route.action == "edit" else None,
+                request,
+                current=current,
                 out_dir=OUT_DIR / session.sid,
                 basename="model",
             )

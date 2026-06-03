@@ -27,8 +27,16 @@ class Settings:
     # Public base URL for the inbound-SMS webhook + render links (e.g. ngrok).
     public_url: str = os.getenv("PUBLIC_URL", "").rstrip("/")
 
-    # Render <-> critic refinement loop cap.
+    # Build <-> critic refinement loop cap.
     max_iterations: int = int(os.getenv("MAX_ITERATIONS", "3"))
+
+    # Live Blender with the BlenderMCP socket addon (text->3D via Hyper3D Rodin).
+    blender_host: str = os.getenv("BLENDER_HOST", "127.0.0.1")
+    blender_port: int = int(os.getenv("BLENDER_PORT", "9876"))
+    # Command the BuilderAgent spawns as its MCP toolset (talks to the addon).
+    blender_mcp_cmd: list[str] = (os.getenv("BLENDER_MCP_CMD", "uvx blender-mcp")).split()
+    # Max seconds to wait for one Rodin text->mesh generation.
+    rodin_timeout: int = int(os.getenv("RODIN_TIMEOUT", "240"))
 
 
 settings = Settings()

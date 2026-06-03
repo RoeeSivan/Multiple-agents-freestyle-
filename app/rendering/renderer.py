@@ -1,8 +1,12 @@
-"""Headless Three.js renderer.
+"""Headless Three.js renderer — LEGACY / reference only.
 
-Loads web/scene.html in bundled Chromium, injects a SceneSpec, screenshots the
-canvas to PNG, and exports the content group to a binary .glb. No Blender — the
-browser's WebGL is the renderer.
+Loads web/scene.html in bundled Chromium, injects a primitive scene dict,
+screenshots the canvas to PNG, and exports the content group to a binary .glb.
+
+This was the original geometry backend. It has been superseded by the Blender
+MCP backend (app/rendering/blender_io.py) and is no longer wired into the
+pipeline; it expects the old primitive scene shape, not the current BuildSpec.
+Kept on disk for reference.
 """
 from __future__ import annotations
 
@@ -18,7 +22,6 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 from app.config import WEB_DIR
-from app.models import SceneSpec
 
 # Chromium flags so headless WebGL works even without a GPU (software fallback).
 _GL_FLAGS = [
@@ -58,9 +61,9 @@ def _serve(directory: Path):
         httpd.server_close()
 
 
-async def render_scene(spec: SceneSpec | dict, out_dir: Path, basename: str = "model") -> RenderResult:
-    """Render `spec` to PNG + glb, returning their paths."""
-    spec_dict = spec.model_dump() if isinstance(spec, SceneSpec) else spec
+async def render_scene(spec: dict, out_dir: Path, basename: str = "model") -> RenderResult:
+    """Render a primitive scene `dict` to PNG + glb, returning their paths."""
+    spec_dict = spec.model_dump() if hasattr(spec, "model_dump") else spec
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     png_path = out_dir / f"{basename}.png"

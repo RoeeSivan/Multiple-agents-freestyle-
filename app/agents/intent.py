@@ -1,78 +1,68 @@
-"""IntentAgent — turns a natural-language request into a structured SceneSpec.
+"""PlannerAgent — turns a request into a typed BuildSpec.
 
-This is where the wow starts: free text like "a red sports car next to a palm
-tree" becomes a typed scene of primitive meshes the renderer can draw. The same
-agent also applies edits ("make the car blue") by rewriting the current spec.
+This is the typed contract at the heart of the multi-agent system: free text like
+"a red sports car next to a palm tree" becomes a BuildSpec — a list of distinct
+objects, each with a vivid prompt a text-to-3D model can generate, plus
+environment and camera hints. The same agent applies edits by rewriting the
+current plan. The BuilderAgent then realizes the plan in Blender.
 """
 from __future__ import annotations
 
 from pydantic_ai import Agent
 
 from app.config import settings
-from app.models import SceneSpec
+from app.models import BuildSpec
 
 SYSTEM_PROMPT = """\
-You are a 3D scene designer. You convert a user's plain-language description into
-a SceneSpec: a list of primitive meshes (box, sphere, cylinder, cone, torus,
-plane) that together approximate what they asked for.
+You are a 3D build planner. You convert a user's plain-language description into a
+BuildSpec for a downstream agent that generates each object as a real mesh with an
+AI text-to-3D model (Hyper3D Rodin) and arranges them in Blender.
 
-COORDINATE SYSTEM
-- Y is up. The ground is the plane y = 0.
-- `position` is the CENTER of the primitive. Units are meters.
-- A primitive is 1m in each dimension before `scale`. To rest an object of
-  height h on the ground, set position.y = h/2.
-- `rotation` is in radians, applied XYZ. A cylinder's axis is Y by default; to
-  lay it on its side (e.g. a wheel or a log) rotate rotation.x or rotation.z by
-  about 1.5708 (pi/2).
+DECOMPOSE the request into DISTINCT whole objects — not primitive parts. "A car
+next to a tree" is TWO objects (a car, a tree), NOT boxes and cylinders. A single
+thing ("a wooden chair") is ONE object. Keep it to 1-6 objects: each object is a
+separate, somewhat slow generation, so don't over-split.
 
-COMPOSITION
-- Build complex objects out of several primitives. Examples:
-  * car  = a flattened box (body) + a smaller box (cabin) + 4 cylinders (wheels,
-    rotated to be horizontal).
-  * tree = a thin tall cylinder (trunk) + a sphere or cone (foliage) on top.
-  * house = a box (walls) + a cone or pyramid-like box (roof).
-- Give every object a clear snake_case `name` (e.g. car_body, front_left_wheel).
-- CONNECT the parts of a single object — they must touch, not float. A chair's
-  backrest sits on the rear edge of the seat and its bottom reaches the seat top;
-  a tree's foliage overlaps the top of the trunk; wheels touch both the body and
-  the ground. Overlap parts slightly rather than leaving gaps. Double-check the
-  math: for a part of height h resting on top of another whose top is at y=T, set
-  position.y = T + h/2.
-- Everything rests on the ground (its lowest point at y=0) unless it is meant to
-  be elevated; nothing should sink below the ground.
-- Separate DISTINCT objects so they don't unintentionally collide.
+For each object set:
+- name: short snake_case id (e.g. 'sports_car', 'palm_tree').
+- description: a vivid, self-contained English prompt describing ONE object in
+  detail (form, color, style, material). Do NOT mention other objects or scene
+  layout here — Rodin generates one object at a time.
+- approx_size_m: realistic real-world size of the object's longest dimension in
+  meters (a car ~4.5, a chair ~1, a mug ~0.1, a tree ~5).
+- material_hint: optional surface note (e.g. 'glossy red car paint').
+- position_hint: where it sits relative to the scene/other objects (e.g.
+  'centered on the ground', 'to the right of the car').
 
-STYLE
-- Use realistic hex `color`s.
-- Choose `material`: "metal" for chrome/gold/steel, "glass" for transparent
-  things (windows, water), "emissive" for lights/sun/glowing things, otherwise
-  "standard".
-- Pick a `background` hex that suits the scene (sky blue for outdoors, dark for
-  studio, etc.) and a sensible `sun_dir`.
+Also set `environment` (lighting/world mood, e.g. 'outdoor sunny', 'studio
+neutral', 'night city') and `camera_hint` (framing, e.g. 'three-quarter front
+view') and a short `title`.
 
-Keep scenes to roughly 3-15 objects — enough to read clearly, not so many it
-turns to mush. Always return a complete, valid SceneSpec.
+Always return a complete, valid BuildSpec.
 """
 
-intent_agent = Agent(
+planner_agent = Agent(
     settings.model,
-    output_type=SceneSpec,
+    output_type=BuildSpec,
     system_prompt=SYSTEM_PROMPT,
     retries=2,
 )
 
+# Backwards-compatible alias (the agent used to be the IntentAgent).
+intent_agent = planner_agent
 
-async def build_spec(request: str, current: SceneSpec | None = None) -> SceneSpec:
-    """Create a new SceneSpec, or edit `current` per the request."""
+
+async def build_spec(request: str, current: BuildSpec | None = None) -> BuildSpec:
+    """Create a new BuildSpec, or edit `current` per the request."""
     if current is None:
-        prompt = f"User request: {request}\n\nDesign the scene."
+        prompt = f"User request: {request}\n\nPlan the build."
     else:
         prompt = (
-            "Here is the CURRENT scene as JSON:\n"
+            "Here is the CURRENT build plan as JSON:\n"
             f"{current.model_dump_json(indent=2)}\n\n"
             f"Apply this edit instruction: {request}\n\n"
-            "Return the FULL updated SceneSpec. Preserve every object/property "
-            "the instruction does not change."
+            "Return the FULL updated BuildSpec. Preserve every object/field the "
+            "instruction does not change."
         )
-    result = await intent_agent.run(prompt)
+    result = await planner_agent.run(prompt)
     return result.output

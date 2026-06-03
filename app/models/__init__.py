@@ -1,4 +1,10 @@
-"""Shared Pydantic schemas (the structured contract between agents + renderer)."""
-from app.models.scene import Critique, Obj, SceneSpec
+"""Shared Pydantic schemas (the structured contract between the agents)."""
+from app.models.scene import (
+    BuildReport,
+    BuildSpec,
+    Clarification,
+    Critique,
+    ObjectBrief,
+)
 
-__all__ = ["Obj", "SceneSpec", "Critique"]
+__all__ = ["ObjectBrief", "BuildSpec", "Clarification", "BuildReport", "Critique"]
