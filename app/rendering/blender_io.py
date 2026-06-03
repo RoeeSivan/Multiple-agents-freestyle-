@@ -5,25 +5,21 @@ JSON-over-TCP protocol the BlenderMCP addon speaks (`{"type", "params"}` ->
 `{"status", "result"|"message"}`) and provides the steps that should NOT be left
 to a language model:
 
-- `clear_scene()`            wipe the scene for a fresh build
-- `generate_object()`        full Hyper3D Rodin text->mesh: create -> poll -> import
-                             -> rescale (done here so the agent never tight-loops
-                             on the polling API)
-- `frame_and_shade()`        material-preview shading + frame all objects
-- `viewport_screenshot()`    PNG for the VisionCritic
-- `export_glb()`             recenter to origin + drop to ground (Blender is
-                             Z-up) and export a game-ready binary .glb
+- `clear_scene()`     wipe the scene for a fresh build
+- `run_code()`        run arbitrary bpy (used by tests/utilities)
+- `render_png()`      camera-framed Eevee render for the VisionCritic
+- `export_glb()`      recenter to origin + drop to ground (Blender is Z-up) and
+                      export a game-ready binary .glb (modifiers applied)
 - `get_scene_info` / status helpers
 
-The BuilderAgent drives the *creative* work (layout, materials, world) through
-the blender-mcp MCP toolset; this module is what its `generate_object` tool and
-the pipeline's render/export steps call.
+The BuilderAgent does the *creative* work — it MODELS each object by writing bpy
+through the blender-mcp MCP toolset; this module only handles the deterministic
+clear / render / export steps the pipeline runs around it.
 """
 from __future__ import annotations
 
 import json
 import socket
-import time
 
 from app.config import settings
 
@@ -116,89 +112,6 @@ def clear_scene() -> None:
     run_code(_CLEAR_CODE)
 
 
-def generate_object(
-    name: str,
-    description: str,
-    target_size_m: float = 1.0,
-    bbox_condition: list[float] | None = None,
-    timeout: float | None = None,
-) -> dict:
-    """Generate one mesh from text via Hyper3D Rodin and import it, rescaled.
-
-    Blocks until the Rodin job is Done (or `timeout` / settings.rodin_timeout),
-    so callers — including the BuilderAgent's tool — get a single synchronous
-    call instead of having to poll. Returns the imported object's info.
-    """
-    timeout = timeout or settings.rodin_timeout
-
-    job = _send(
-        "create_rodin_job",
-        {"text_prompt": description, "images": None, "bbox_condition": bbox_condition},
-    )
-    if not isinstance(job, dict):
-        raise BlenderError(f"Rodin job not accepted for '{name}': {job}")
-
-    deadline = time.time() + timeout
-    if job.get("request_id"):
-        # FAL_AI mode: poll by request_id; done when status == COMPLETED.
-        req_id = job["request_id"]
-        while True:
-            status = _send("poll_rodin_job_status", {"request_id": req_id})
-            state = (status or {}).get("status")
-            if state == "COMPLETED":
-                break
-            if state not in ("IN_PROGRESS", "IN_QUEUE", None):
-                raise BlenderError(f"Rodin (FAL) failed for '{name}': {status}")
-            if time.time() > deadline:
-                raise BlenderError(
-                    f"Rodin timed out after {timeout:.0f}s for '{name}'; last={state}"
-                )
-            time.sleep(4)
-        import_params = {"name": name, "request_id": req_id}
-    elif job.get("submit_time"):
-        # MAIN_SITE mode: poll by subscription_key; done when all statuses == Done.
-        task_uuid = job["uuid"]
-        sub_key = job["jobs"]["subscription_key"]
-        while True:
-            status = _send("poll_rodin_job_status", {"subscription_key": sub_key})
-            statuses = (status or {}).get("status_list", [])
-            if statuses and all(s == "Done" for s in statuses):
-                break
-            if any(s in ("Failed", "Canceled", "Cancelled", "Error") for s in statuses):
-                raise BlenderError(f"Rodin job failed for '{name}': {statuses}")
-            if time.time() > deadline:
-                raise BlenderError(
-                    f"Rodin timed out after {timeout:.0f}s for '{name}'; last={statuses}"
-                )
-            time.sleep(4)
-        import_params = {"name": name, "task_uuid": task_uuid}
-    else:
-        raise BlenderError(f"Rodin job not accepted for '{name}': {job}")
-
-    # Import can take a while (server-side download into Blender).
-    imported = _send("import_generated_asset", import_params, timeout=240.0)
-    if not isinstance(imported, dict) or not imported.get("succeed"):
-        raise BlenderError(f"Rodin import failed for '{name}': {imported}")
-
-    obj_name = imported["name"]
-    # Rodin meshes import at a normalized size — rescale longest dimension to target.
-    run_code(
-        f"""
-import bpy
-o = bpy.data.objects.get({obj_name!r})
-if o is not None:
-    d = o.dimensions
-    m = max(d.x, d.y, d.z)
-    if m > 0:
-        f = {float(target_size_m)} / m
-        o.scale = (o.scale.x * f, o.scale.y * f, o.scale.z * f)
-    bpy.context.view_layer.update()
-print("RESCALED")
-"""
-    )
-    return imported
-
-
 def render_png(path) -> str:
     """Render a clean, framed PNG of the scene for the VisionCritic.
 
@@ -225,7 +138,17 @@ else:
             w = o.matrix_world @ mathutils.Vector(c)
             for i in range(3):
                 mins[i] = min(mins[i], w[i]); maxs[i] = max(maxs[i], w[i])
-    center = mathutils.Vector(((mins[0]+maxs[0])/2, (mins[1]+maxs[1])/2, (mins[2]+maxs[2])/2))
+
+    # Drop to ground + center in X/Y for the shot, exactly like export_glb, so the
+    # critic judges the same grounded object the .glb will contain (no false
+    # "floating" complaints). Restore afterwards so refine passes are unaffected.
+    off = mathutils.Vector((-(mins[0]+maxs[0])/2.0, -(mins[1]+maxs[1])/2.0, -mins[2]))
+    tops = [o for o in bpy.data.objects if o.parent is None]
+    for o in tops:
+        o.location = o.location + off
+    bpy.context.view_layer.update()
+
+    center = mathutils.Vector((0.0, 0.0, (maxs[2]-mins[2]) / 2.0))
     radius = max((mathutils.Vector(maxs) - mathutils.Vector(mins)).length / 2.0, 0.5)
 
     cam = scene.camera
@@ -263,6 +186,9 @@ else:
     scene.render.image_settings.file_format = 'PNG'
     scene.render.filepath = {p!r}
     bpy.ops.render.render(write_still=True)
+    for o in tops:
+        o.location = o.location - off
+    bpy.context.view_layer.update()
     print("SHOT_OK")
 """,
         timeout=180.0,
@@ -307,7 +233,8 @@ else:
     bpy.ops.object.select_all(action='DESELECT')
     for o in meshes:
         o.select_set(True)
-    bpy.ops.export_scene.gltf(filepath={p!r}, export_format='GLB', use_selection=True)
+    bpy.ops.export_scene.gltf(filepath={p!r}, export_format='GLB', use_selection=True,
+                              export_yup=True, export_apply=True, export_materials='EXPORT')
     for o in tops:
         o.location = o.location - off
     bpy.context.view_layer.update()

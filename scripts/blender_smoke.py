@@ -1,56 +1,53 @@
-"""End-to-end smoke test of the Blender geometry backend (no LLM, no SMS).
+"""End-to-end smoke test of the agentic-modeling backend (no SMS).
 
-Clears the scene, generates one real mesh via Hyper3D Rodin, screenshots the
-viewport, and exports a game-ready .glb — exercising the exact `blender_io`
-calls the pipeline uses. Run with Blender open + the BlenderMCP addon connected
-(Rodin + PolyHaven enabled):
+Runs the real pipeline once with the critic loop OFF: PlannerAgent turns the
+prompt into a BuildSpec, the BuilderAgent MODELS it in the live Blender via the
+blender-mcp toolset, then we render a PNG and export a .glb. Exercises the exact
+path the SMS server uses. Needs Blender open with the BlenderMCP addon connected,
+plus OPENAI_API_KEY.
 
-    uv run python -m scripts.blender_smoke "a red sports car"
+    uv run python -m scripts.blender_smoke "a wooden chair"
 """
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 from pathlib import Path
 
 from app.config import OUT_DIR
+from app.pipeline import build_3d
 from app.rendering import blender_io as bio
 
 
-def main() -> int:
-    prompt = sys.argv[1] if len(sys.argv) > 1 else "a red sports car"
-
+async def run(prompt: str) -> int:
     if not bio.reachable():
         print("FAIL: Blender addon not reachable on the configured port.")
         return 1
-    h = bio.hyper3d_status()
-    if not h.get("enabled"):
-        print(f"FAIL: Hyper3D Rodin is disabled: {h.get('message')}")
-        return 1
-    print(f"Rodin OK ({h.get('message', '')[:60]}). Building: {prompt!r}")
-
-    out = OUT_DIR / "smoke"
-    out.mkdir(parents=True, exist_ok=True)
-    png, glb = out / "smoke.png", out / "smoke.glb"
+    print(f"Modeling: {prompt!r}  (critic loop off for speed)")
 
     t0 = time.time()
-    bio.clear_scene()
-    info = bio.generate_object(name="smoke_obj", description=prompt, target_size_m=2.0)
-    print(f"  generated + imported in {time.time() - t0:.0f}s: {info.get('name')}")
+    res = await build_3d(
+        prompt, out_dir=OUT_DIR / "smoke", basename="smoke", refine=False
+    )
 
-    bio.render_png(png)
-    bio.export_glb(glb)
+    png_kb = res.png.stat().st_size / 1024 if res.png.exists() else 0
+    glb_kb = res.glb.stat().st_size / 1024 if res.glb.exists() else 0
+    print(f"  plan: {res.spec.title} -> objects {[o.name for o in res.spec.objects]}")
+    print(f"  built: {res.report.objects_built}  ({res.report.notes[:80]})")
+    print(f"  png: {png_kb:.0f} KB -> {res.png}")
+    print(f"  glb: {glb_kb:.0f} KB -> {res.glb}")
 
-    png_kb = png.stat().st_size / 1024 if png.exists() else 0
-    glb_kb = glb.stat().st_size / 1024 if glb.exists() else 0
-    print(f"  png: {png_kb:.0f} KB  ->  {png}")
-    print(f"  glb: {glb_kb:.0f} KB  ->  {glb}")
-
-    if glb_kb < 20:
-        print("FAIL: glb suspiciously small — mesh probably did not import.")
+    if glb_kb < 5:
+        print("FAIL: glb suspiciously small — modeling probably produced nothing.")
         return 1
-    print(f"PASS in {time.time() - t0:.0f}s total.")
+    print(f"PASS in {time.time() - t0:.0f}s.")
     return 0
+
+
+def main() -> int:
+    prompt = sys.argv[1] if len(sys.argv) > 1 else "a wooden chair"
+    return asyncio.run(run(prompt))
 
 
 if __name__ == "__main__":

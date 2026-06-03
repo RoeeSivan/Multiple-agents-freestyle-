@@ -1,8 +1,8 @@
 # Text-to-3D over SMS 📱→🧊
 
-**Text a phone number a description of a 3D scene. A team of AI agents builds it
-in a live Blender — generating real meshes with AI, critiquing the render, and
-refining — then texts you back a link to the image, plus a game-ready `.glb` you
+**Text a phone number a description of a 3D scene. A team of AI agents models it
+in a live Blender — writing the geometry itself, critiquing the render, and
+reshaping — then texts you back a link to the image, plus a game-ready `.glb` you
 can drop straight into Unity / Unreal / Godot / Three.js. Reply to keep editing
 it by text.**
 
@@ -14,17 +14,18 @@ it by text.**
 
 ## Why it's cool
 
-- You **SMS** plain language ("a red sports car next to a palm tree") and a real
-  3D model comes back to your phone.
-- The geometry is **AI-generated meshes** (Hyper3D Rodin) arranged in **Blender**,
-  with **PolyHaven** materials/lighting — not primitive boxes. Actual cars look
-  like cars.
+- You **SMS** plain language ("a red sports car next to a palm tree") and a 3D
+  model comes back to your phone.
+- The geometry is **created by the AI itself**: the BuilderAgent writes Blender
+  Python (modifiers, subdivision, bevel, joins, materials) to model each object —
+  nothing is imported from an asset library.
 - It's a **conversation**: reply "make the car blue, bigger wheels" and it edits
   the live scene.
 - The output isn't just a picture — it's a **reusable `.glb` asset**, recentered
   and dropped to the ground, ready for a game engine.
 - The agent literally **drives Blender through MCP**: the prompt goes straight to
-  Blender via the blender-mcp toolset.
+  Blender via the blender-mcp toolset, and the **VisionCritic** loops on the render
+  to reshape until it reads right.
 
 ## How it works
 
@@ -36,12 +37,12 @@ it by text.**
    │   InfoAgent ── (one question if too vague) ─┐  │
    ▼                                             ▼  ▼
  PlannerAgent ──▶ BuildSpec (typed) ──▶ BuilderAgent ──MCP──▶ live Blender
-        ▲                                  │  ├─ Hyper3D Rodin: text → mesh
-        │                                  │  ├─ PolyHaven: HDRI / materials
-        │                                  │  └─ bpy: arrange on the ground
+        ▲                                  │  ├─ execute_blender_code: model + shape
+        │                                  │  ├─ modifiers / join / materials
+        │                                  │  └─ PolyHaven HDRI (optional lighting)
         │                                  ▼
         │                          render.png ──┐
-        └──── VisionCritic ◀── looks at it ◀────┘   (refine loop, capped)
+        └──── VisionCritic ◀── looks at it ◀────┘   (reshape loop, capped)
                                                  │
  You ◀──SMS── link ◀────────── FastAPI ◀─────────┘  + export model.glb
                        + live web dashboard / viewer page
@@ -54,8 +55,8 @@ it by text.**
 | **RouterAgent** | [router.py](app/agents/router.py) | Triage the SMS: build new / edit current / just chat | `Route` |
 | **InfoAgent** | [info.py](app/agents/info.py) | Ask **one** clarifying question only when a request is genuinely too vague | `Clarification` |
 | **PlannerAgent** | [intent.py](app/agents/intent.py) | Decompose text into distinct objects, each a vivid text-to-3D prompt + hints | `BuildSpec` |
-| **BuilderAgent** | [builder.py](app/agents/builder.py) | Build/edit the scene in a **live Blender** via the blender-mcp toolset + Rodin | `BuildReport` |
-| **VisionCritic** | [critic.py](app/agents/critic.py) | *Look at the render* and propose concrete fixes | `Critique` |
+| **BuilderAgent** | [builder.py](app/agents/builder.py) | **Model** each object in a **live Blender** by writing bpy via the blender-mcp toolset | `BuildReport` |
+| **VisionCritic** | [critic.py](app/agents/critic.py) | *Look at the render* and say how to reshape | `Critique` |
 
 They collaborate via a programmatic hand-off in [pipeline.py](app/pipeline.py):
 Planner → Builder → render → Critic → (refine via Builder) → … capped at
@@ -64,12 +65,15 @@ Planner → Builder → render → Critic → (refine via Builder) → … cappe
 
 ### Geometry backend (Blender MCP)
 
-[blender_io.py](app/rendering/blender_io.py) talks JSON-over-TCP to the BlenderMCP
-socket addon. It owns the deterministic steps — full Hyper3D Rodin generation
-(create → poll → import → rescale), a clean camera-framed **Eevee** render for the
-critic, and a recentered, ground-dropped `.glb` export (Blender is Z-up → glTF
-Y-up). The BuilderAgent does the creative work (object placement, materials,
-world) through the MCP toolset.
+The BuilderAgent **models each object itself** — writing Blender Python through
+the blender-mcp `execute_blender_code` tool (primitives shaped with modifiers,
+joined, materialed, seated on the ground). [blender_io.py](app/rendering/blender_io.py)
+handles only the deterministic steps around it over the BlenderMCP socket: clear
+the scene, a camera-framed **Eevee** render for the critic, and a recentered,
+ground-dropped `.glb` export with modifiers baked in (`export_apply=True`; Blender
+Z-up → glTF Y-up). Same technique as a sibling Three.js game project's
+`blender/*.py` scripts (Claude writing bpy), but live over MCP and looped by the
+critic.
 
 ### Saperly (phone carrier for AI agents)
 
@@ -107,10 +111,9 @@ addon:
 
 1. Install the addon, open the **BlenderMCP** panel (press `N` in the 3D
    viewport), click **Connect to MCP server** (socket on port 9876).
-2. Check **Use assets from Poly Haven** and **Use Hyper3D Rodin 3D model
-   generation**.
-3. Set a **funded** Rodin key in the panel — the shared *Free Trial* key returns
-   `API_INSUFFICIENT_FUNDS`. Get a key at hyper3d.ai and paste it in.
+2. (Optional) Check **Use assets from Poly Haven** so the builder can pull a free
+   HDRI for nicer lighting. No paid keys are needed — the AI models the geometry
+   itself.
 
 ```bash
 uv venv --python 3.13
@@ -158,8 +161,10 @@ uv run pytest -q   # schema tests + a Blender cube render→.glb (skips if Blend
 
 - **One Blender, one scene** — builds are serialized; this is a single-user demo,
   not a concurrent service.
-- **Rodin costs credits** and a generation takes ~tens of seconds, so the server
-  texts a "building…" ack first, then the link when done.
+- **Quality is stylized**, not photoreal — the AI models from primitives +
+  modifiers, and the VisionCritic loop reshapes until the render reads right. A
+  build takes ~tens of seconds, so the server texts a "building…" ack first, then
+  the link when done.
 - $5 Saperly credit ≈ ~250 SMS. Outbound needs prior inbound or a consent record
   (handled in `record_consent`).
 - Voice input is a natural next step (Saperly does voice too) — left as a stretch.

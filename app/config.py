@@ -35,8 +35,6 @@ class Settings:
     blender_port: int = int(os.getenv("BLENDER_PORT", "9876"))
     # Command the BuilderAgent spawns as its MCP toolset (talks to the addon).
     blender_mcp_cmd: list[str] = (os.getenv("BLENDER_MCP_CMD", "uvx blender-mcp")).split()
-    # Max seconds to wait for one Rodin text->mesh generation.
-    rodin_timeout: int = int(os.getenv("RODIN_TIMEOUT", "240"))
 
 
 settings = Settings()
