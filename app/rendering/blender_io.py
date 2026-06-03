@@ -135,29 +135,48 @@ def generate_object(
         "create_rodin_job",
         {"text_prompt": description, "images": None, "bbox_condition": bbox_condition},
     )
-    if not isinstance(job, dict) or not job.get("submit_time"):
-        raise BlenderError(f"Rodin job not accepted: {job}")
-    task_uuid = job["uuid"]
-    sub_key = job["jobs"]["subscription_key"]
+    if not isinstance(job, dict):
+        raise BlenderError(f"Rodin job not accepted for '{name}': {job}")
 
     deadline = time.time() + timeout
-    while True:
-        status = _send("poll_rodin_job_status", {"subscription_key": sub_key})
-        statuses = (status or {}).get("status_list", [])
-        if statuses and all(s == "Done" for s in statuses):
-            break
-        if any(s in ("Failed", "Canceled", "Cancelled", "Error") for s in statuses):
-            raise BlenderError(f"Rodin job failed for '{name}': {statuses}")
-        if time.time() > deadline:
-            raise BlenderError(
-                f"Rodin timed out after {timeout:.0f}s for '{name}'; last={statuses}"
-            )
-        time.sleep(4)
+    if job.get("request_id"):
+        # FAL_AI mode: poll by request_id; done when status == COMPLETED.
+        req_id = job["request_id"]
+        while True:
+            status = _send("poll_rodin_job_status", {"request_id": req_id})
+            state = (status or {}).get("status")
+            if state == "COMPLETED":
+                break
+            if state not in ("IN_PROGRESS", "IN_QUEUE", None):
+                raise BlenderError(f"Rodin (FAL) failed for '{name}': {status}")
+            if time.time() > deadline:
+                raise BlenderError(
+                    f"Rodin timed out after {timeout:.0f}s for '{name}'; last={state}"
+                )
+            time.sleep(4)
+        import_params = {"name": name, "request_id": req_id}
+    elif job.get("submit_time"):
+        # MAIN_SITE mode: poll by subscription_key; done when all statuses == Done.
+        task_uuid = job["uuid"]
+        sub_key = job["jobs"]["subscription_key"]
+        while True:
+            status = _send("poll_rodin_job_status", {"subscription_key": sub_key})
+            statuses = (status or {}).get("status_list", [])
+            if statuses and all(s == "Done" for s in statuses):
+                break
+            if any(s in ("Failed", "Canceled", "Cancelled", "Error") for s in statuses):
+                raise BlenderError(f"Rodin job failed for '{name}': {statuses}")
+            if time.time() > deadline:
+                raise BlenderError(
+                    f"Rodin timed out after {timeout:.0f}s for '{name}'; last={statuses}"
+                )
+            time.sleep(4)
+        import_params = {"name": name, "task_uuid": task_uuid}
+    else:
+        raise BlenderError(f"Rodin job not accepted for '{name}': {job}")
 
     # Import can take a while (server-side download into Blender).
-    imported = _send(
-        "import_generated_asset", {"name": name, "task_uuid": task_uuid}, timeout=240.0
-    )
+    imported = _send("import_generated_asset", import_params, timeout=240.0)
     if not isinstance(imported, dict) or not imported.get("succeed"):
         raise BlenderError(f"Rodin import failed for '{name}': {imported}")
 
