@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SMS → 3D · Live</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 50% -10%, #1b2433, #0a0d12 70%);
+      color: #e7ecf3; min-height: 100vh; padding: 28px;
+    }
+    header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+    header h1 { font-size: 22px; margin: 0; font-weight: 700; }
+    header .sub { color: #8190a3; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; }
+    .card { background: #131922; border: 1px solid #232c3a; border-radius: 16px; overflow: hidden;
+      box-shadow: 0 14px 40px rgba(0,0,0,.4); display: flex; flex-direction: column; }
+    .imgwrap { position: relative; aspect-ratio: 4/3; background: #0c0f15; }
+    .imgwrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .badge { position: absolute; top: 10px; left: 10px; padding: 5px 11px; border-radius: 999px;
+      font-size: 12px; font-weight: 650; background: rgba(0,0,0,.55); }
+    .badge.building { color: #ffcf5c; } .badge.done { color: #5ce6a1; } .badge.error { color: #ff7a7a; }
+    .badge.idle { color: #9fb0c3; }
+    .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+    .phone { font-size: 13px; color: #8190a3; }
+    .convo { display: flex; flex-direction: column; gap: 6px; max-height: 168px; overflow: auto; }
+    .msg { font-size: 13px; line-height: 1.35; padding: 7px 11px; border-radius: 12px; max-width: 90%; }
+    .msg.user { align-self: flex-end; background: #2b3a55; }
+    .msg.agent { align-self: flex-start; background: #1c2431; color: #cdd8e6; }
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+    a.dl { font-size: 12px; color: #8fb4ff; text-decoration: none; }
+    .empty { color: #6c7a8c; grid-column: 1/-1; text-align: center; padding: 60px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SMS → 3D</h1>
+    <span class="sub">Text a scene · agents build it · download the .glb</span>
+  </header>
+  <div class="grid" id="grid"><div class="empty">Waiting for the first text…</div></div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    function card(s) {
+      const convo = s.turns.map(t =>
+        `<div class="msg ${t.role}">${escapeHtml(t.text)}</div>`).join('');
+      const img = s.png
+        ? `<img src="${s.png}" alt="">`
+        : `<div style="display:grid;place-items:center;height:100%;color:#6c7a8c;font-size:13px">building…</div>`;
+      const dl = s.glb ? `<a class="dl" href="${s.glb}" download>⬇ .glb</a>` : '';
+      const parts = s.objects.length ? `${s.objects.length} parts · ${s.iterations} pass` : '';
+      return `<div class="card">
+        <div class="imgwrap">${img}<div class="badge ${s.status}">${s.status}</div></div>
+        <div class="body">
+          <div class="phone">${escapeHtml(s.phone)}</div>
+          <div class="convo">${convo}</div>
+          <div class="row">${dl}<span style="color:#6c7a8c;font-size:12px">${parts}</span></div>
+        </div></div>`;
+    }
+    function escapeHtml(x){return x.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+    async function tick() {
+      try {
+        const r = await fetch('/api/state', { cache: 'no-store' });
+        const { sessions } = await r.json();
+        grid.innerHTML = sessions.length
+          ? sessions.map(card).join('')
+          : '<div class="empty">Waiting for the first text…</div>';
+      } catch (e) {}
+    }
+    tick(); setInterval(tick, 2000);
+  </script>
+</body>
+</html>
