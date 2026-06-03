@@ -21,6 +21,8 @@ class Settings:
     # Saperly (phone carrier for AI agents).
     saperly_api_key: str = os.getenv("SAPERLY_API_KEY", "")
     saperly_phone: str = os.getenv("SAPERLY_PHONE_NUMBER", "")
+    saperly_base: str = os.getenv("SAPERLY_BASE", "https://saperly.com/api/v1")
+    saperly_line_id: str = os.getenv("SAPERLY_LINE_ID", "")  # auto-resolved if blank
 
     # Public base URL for the inbound-SMS webhook + render links (e.g. ngrok).
     public_url: str = os.getenv("PUBLIC_URL", "").rstrip("/")
