@@ -66,13 +66,22 @@ async def build_3d(
     max_iterations: int | None = None,
     refine: bool = True,
     turntable: bool = True,
+    spec: BuildSpec | None = None,
+    references: dict[str, Reference] | None = None,
 ) -> BuildResult:
-    """Build (or edit) a 3D scene from `request`, refining via the critic loop."""
+    """Build (or edit) a 3D scene from `request`, refining via the critic loop.
+
+    `spec` lets the caller pass an already-planned BuildSpec (skips re-planning).
+    `references` pre-seeds grounding per object name — objects present here are NOT
+    web-fetched (e.g. user-photo grounding). Objects absent from it still get the
+    normal web reference. Each reference is keyed to one object, so they never bleed.
+    """
     max_iter = max_iterations if max_iterations is not None else settings.max_iterations
     is_edit = current is not None
 
-    # Planning needs no Blender, so do it before grabbing the lock.
-    spec = await build_spec(request, current)
+    # Planning needs no Blender, so do it before grabbing the lock (unless given).
+    if spec is None:
+        spec = await build_spec(request, current)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -81,11 +90,15 @@ async def build_3d(
 
     # Ground each object on real web photos + dimensions (best-effort; None on
     # failure/disabled). real_dims_m becomes the audit's size target. Also Blender-
-    # free, so do it before grabbing the lock; lookups run concurrently.
-    references: dict[str, Reference] = {}
+    # free, so do it before grabbing the lock; lookups run concurrently. Objects
+    # pre-seeded in `references` (e.g. user photos) skip the web entirely.
+    refs: dict[str, Reference] = dict(references or {})
     if settings.web_reference:
-        results = await asyncio.gather(*[get_reference(b, out_dir) for b in spec.objects])
-        references = {b.name: r for b, r in zip(spec.objects, results)}
+        to_fetch = [b for b in spec.objects if b.name not in refs]
+        if to_fetch:
+            results = await asyncio.gather(*[get_reference(b, out_dir) for b in to_fetch])
+            refs.update({b.name: r for b, r in zip(to_fetch, results)})
+    references = refs
     size_targets = {n: r.real_dims_m for n, r in references.items() if r and r.real_dims_m > 0}
 
     async with _BUILD_LOCK:

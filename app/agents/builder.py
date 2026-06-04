@@ -133,6 +133,8 @@ async def build_scene(
         )
 
     # On a fresh build / edit, attach real reference photos + facts as grounding.
+    # Each object's reference is attached under ITS name only — never carry one
+    # object's photos or geometry into another's build.
     content: list = [prompt]
     if references and not feedback:
         for name, ref in references.items():
@@ -142,9 +144,13 @@ async def build_scene(
             if ref.real_dims_m:
                 note += f" Real longest dimension ~{ref.real_dims_m} m."
             content.append(note)
-            for p in ref.images:
-                if Path(p).exists():
-                    content.append(image_content(p))
+            for i, p in enumerate(ref.images):
+                if not Path(p).exists():
+                    continue
+                # Tag user-supplied photos with their view so the angle is unambiguous.
+                if i < len(ref.image_labels):
+                    content.append(f"'{name}' — {ref.image_labels[i]} view:")
+                content.append(image_content(p))
 
     async with builder_agent:
         result = await builder_agent.run(content if len(content) > 1 else prompt)

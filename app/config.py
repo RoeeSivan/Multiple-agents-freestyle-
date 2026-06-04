@@ -35,6 +35,11 @@ class Settings:
     web_reference: bool = os.getenv("WEB_REFERENCE", "1").lower() not in ("0", "false", "no")
     reference_images: int = int(os.getenv("REFERENCE_IMAGES", "3"))  # max photos per object
 
+    # User-photo intake: let the ViewPlanner ask the user (via an upload link) for
+    # photos of objects whose exact look is personal/specific, then model toward
+    # those photos instead of the web. Set PHOTO_INTAKE=0 to disable (tests/smoke).
+    photo_intake: bool = os.getenv("PHOTO_INTAKE", "1").lower() not in ("0", "false", "no")
+
     # Live Blender with the BlenderMCP socket addon (text->3D via Hyper3D Rodin).
     blender_host: str = os.getenv("BLENDER_HOST", "127.0.0.1")
     blender_port: int = int(os.getenv("BLENDER_PORT", "9876"))

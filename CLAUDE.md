@@ -20,11 +20,14 @@ agents share a typed contract (`BuildSpec`):
 - **RouterAgent** [app/agents/router.py](app/agents/router.py) — triage: `new` / `edit` / `chat`.
 - **InfoAgent** [app/agents/info.py](app/agents/info.py) — asks **one** clarifying SMS question only when a request is genuinely too vague (conservative; most requests build with defaults).
 - **PlannerAgent** [app/agents/intent.py](app/agents/intent.py) — text → `BuildSpec`. Decomposes a scene into distinct whole objects, and decomposes **each object into structured `parts`** (`name`, `shape_hint`, `approx_dims_m`, `anchor`) plus `proportions` and `symmetry` — a stable structural contract the builder follows. Also applies edits. (Module still named `intent.py`; `intent_agent` is an alias of `planner_agent`.)
-- **ReferenceAgent** [app/agents/reference.py](app/agents/reference.py) — web grounding. Keyless DuckDuckGo (`ddgs`) tools `search_images` / `search_web`: finds real product photos + real dimensions/facts of each object → `Reference` (chosen photo URLs, `real_dims_m`, `facts`, sources). `get_reference` downloads photos to `out/<sid>/refs/`, caches per object, degrades to `None` on any failure. Toggle with `WEB_REFERENCE` (default on).
+- **ViewPlanner** [app/agents/photoplan.py](app/agents/photoplan.py) — decides, **per object in isolation**, whether to ask the **user** for photos and which `views` (front/back/side/top) → `PhotoPlan`. Asks for personal/specific objects ("my desk chair"), skips generic ones (a soccer ball → web is enough). `plan_views` sanitizes the output (known views only, prompts aligned). Gated by `PHOTO_INTAKE` (default on), fresh builds only. See the **user-photo intake** flow below.
+- **ReferenceAgent** [app/agents/reference.py](app/agents/reference.py) — web grounding. Keyless DuckDuckGo (`ddgs`) tools `search_images` / `search_web`: finds real product photos + real dimensions/facts of each object → `Reference` (chosen photo URLs, `real_dims_m`, `facts`, sources). `get_reference` downloads photos to `out/<sid>/refs/`, caches per object, degrades to `None` on any failure. Toggle with `WEB_REFERENCE` (default on). `reference_from_photos` builds the same `Reference` from the **user's own uploaded photos** instead (`images` + `image_labels` per view; `real_dims_m=0` → planner-guess size; photos-only, no web for that object).
 - **BuilderAgent** [app/agents/builder.py](app/agents/builder.py) — the star. Drives a **live Blender via the blender-mcp MCP toolset** (spawned as a PydanticAI `MCPServerStdio`): it **models each object from scratch** with `execute_blender_code` — builds the planned **parts** at their dims, anchors them so they touch, **Mirror** modifier for declared `symmetry`, plus Subdivision/Bevel/Solidify, `shade_smooth`, joined parts, Principled-BSDF materials — seats them on the ground. On a fresh build it's fed the **real reference photos + facts** and models toward them. Returns a `BuildReport`.
 - **VisionCritic** [app/agents/critic.py](app/agents/critic.py) — looks at **5 rendered views** (front/three-quarter/side/back/top) + the real reference photos → `Critique` telling the builder how to reshape (catches scatter/asymmetry/back-face errors a single view hid; compares to ground truth). Tuned to **converge**, not chase photorealism.
 
-Programmatic hand-off loop in [app/pipeline.py](app/pipeline.py): Planner → ReferenceAgent (per object, concurrent) → (clear) → Builder → **geometry audit + 5-view render** → Critic → (refine via Builder) → … capped at `MAX_ITERATIONS` (default 3). **Converges only when the critic AND the deterministic audit both pass.** Then hero render + `export_glb` + a **turntable mp4**. One Blender = one scene, so the whole Blender interaction is serialized behind a module-level `_BUILD_LOCK`.
+Programmatic hand-off loop in [app/pipeline.py](app/pipeline.py): Planner → ReferenceAgent (per object, concurrent) → (clear) → Builder → **geometry audit + 5-view render** → Critic → (refine via Builder) → … capped at `MAX_ITERATIONS` (default 3). **Converges only when the critic AND the deterministic audit both pass.** Then hero render + `export_glb` + a **turntable mp4**. One Blender = one scene, so the whole Blender interaction is serialized behind a module-level `_BUILD_LOCK`. `build_3d` accepts an optional pre-planned `spec` (skip re-plan) and a pre-seeded `references` dict — objects already in it (e.g. user photos) **skip the web**; everything else is web-grounded as usual. References are keyed by object **name** and the scene is cleared each fresh build, so **no object ever references a past object**.
+
+**User-photo intake** (the "build from my photos" path): after planning, the **ViewPlanner** decides per object if it needs the user's photos. If so, [api.py](app/server/api.py) parks a `PhotoIntake` ([app/state.py](app/state.py) — per-object `views`/`prompts`/`received`, namespaced by a unique `intake.id` so photos never bleed across builds), texts the user a one-tap **upload link**, and stops. The user walks a mobile **wizard** ([web/upload.html](web/upload.html)) that requests each view one at a time and POSTs each photo to `/u/{sid}/photo`. On `/u/{sid}/complete` the server builds a `Reference` per photographed object via `reference_from_photos` and resumes the same `build_3d` loop (photos-only grounding), then SMS-es the viewer link. Saperly has no inbound MMS, so photos arrive via the link, not the text thread. Builder/critic tag each photo with its `front`/`back`/`side` view.
 
 Deterministic geometry audit [app/rendering/geometry_audit.py](app/rendering/geometry_audit.py): no LLM. Measures the live scene with bpy (per-object bbox/size, connected-component islands grouped by bbox overlap = a robust scatter detector, empty/missing checks) and emits exact builder instructions ("scale by ~0.32x"). Sized against the reference's `real_dims_m` when available (else the planner guess). Fed back to the builder **alongside** the critic, so mis-size/scatter get caught without spending a vision pass.
 
@@ -32,7 +35,7 @@ Geometry backend [app/rendering/blender_io.py](app/rendering/blender_io.py): det
 
 Saperly [app/messaging/saperly.py](app/messaging/saperly.py): REST via httpx (the pip package is not actually installable). Base `https://saperly.com/api/v1`, Bearer auth. send_sms / resolve_line_id / record_consent / update_line.
 
-Server [app/server/api.py](app/server/api.py): `POST /sms/incoming` webhook, `/v/{sid}` viewer, `/` dashboard, `/api/state`, static `/out`. Per-sender state in [app/state.py](app/state.py) (in-memory).
+Server [app/server/api.py](app/server/api.py): `POST /sms/incoming` webhook, `/v/{sid}` viewer, `/` dashboard, `/api/state`, static `/out`. **Photo intake:** `/u/{sid}` upload wizard, `GET /api/intake/{sid}` (its state), `POST /u/{sid}/photo` (one view, multipart), `POST /u/{sid}/complete` (kick off the build). Per-sender state in [app/state.py](app/state.py) (in-memory): `Session` now carries an optional `intake: PhotoIntake`.
 
 ## Run
 
@@ -44,7 +47,8 @@ for lighting.
 ```bash
 uv venv --python 3.13 && uv pip install -e .
 uv run python -m scripts.blender_smoke "a wooden chair"   # de-risk: planner+builder via MCP -> png + glb
-uv run pytest -q                                   # schemas + (if Blender up) cube render -> glb
+uv run python -m scripts.photo_intake_smoke "a wooden chair" ~/chair_photos  # de-risk: user-photo path -> png + glb
+uv run pytest -q                                   # schemas + intake/upload HTTP + (if Blender up) cube render -> glb
 uv run uvicorn app.server.api:app --port 8000      # server
 cloudflared tunnel --url http://127.0.0.1:8000     # public tunnel (ngrok not authed on this machine)
 # put the https URL in .env PUBLIC_URL, restart server, then:
@@ -74,6 +78,13 @@ mp4. The old "single-pass bpy is error-prone (mis-sized/scattered)" failure mode
 is now caught by the audit (exact numbers, no vision cost) and the 5-view critic;
 proportions/size are grounded in real web data. "a coffee mug" e2e in ~48s:
 parts+symmetry plan, real 0.12 m reference + 3 photos, png + glb + 245 KB
-turntable. **Next:** a **build timeline** UI showing each refine pass + the
-critic/audit feedback for the demo; consider a vetted bpy helper lib to cut the
-builder's occasional syntax errors (currently absorbed by `retries=2`).
+turntable.
+
+**User-photo intake shipped** (build from the user's OWN photos): ViewPlanner
+decides per object → upload-link wizard collects views one-by-one → `build_3d`
+grounds photos-only on them. Saperly has no inbound MMS, so photos come via the
+link, not the text thread. Offline-tested (schemas, FSM, upload HTTP via
+TestClient); `scripts.photo_intake_smoke` de-risks the build path. **Next:** live
+e2e over the tunnel (text → upload → glb); a **build timeline** UI showing each
+refine pass; consider a vetted bpy helper lib to cut the builder's occasional
+syntax errors (currently absorbed by `retries=2`).

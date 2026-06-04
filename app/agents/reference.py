@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 from ddgs import DDGS
@@ -23,6 +24,9 @@ from pydantic_ai import Agent, BinaryContent
 
 from app.config import settings
 from app.models import ObjectBrief, Reference
+
+if TYPE_CHECKING:  # avoid a runtime import cycle (state imports models, not agents)
+    from app.state import ObjectIntake
 
 log = logging.getLogger("reference")
 
@@ -159,3 +163,28 @@ async def get_reference(brief: ObjectBrief, out_dir: Path) -> Reference | None:
     except Exception as e:  # noqa: BLE001 — grounding is best-effort
         log.warning("reference lookup failed for %r: %s", brief.name, e)
         return None
+
+
+def reference_from_photos(obj: "ObjectIntake") -> Reference:
+    """Build a Reference from the user's own uploaded photos (photos-only path).
+
+    The collected photos become the grounding images, each tagged with its view so
+    the builder/critic know the angle. We deliberately leave `real_dims_m` at 0 (no
+    web lookup) — size falls back to the planner's estimate. This Reference is keyed
+    to ONE object only, so it never bleeds into another object's build.
+    """
+    views = [v for v in obj.views if v in obj.received and Path(obj.received[v]).exists()]
+    label = obj.label or obj.name.replace("_", " ")
+    angles = ", ".join(views) or "several angles"
+    return Reference(
+        object_name=obj.name,
+        images=[obj.received[v] for v in views],
+        image_labels=views,
+        real_dims_m=0.0,
+        facts=(
+            f"These are the user's OWN photos of their actual {label} ({angles}). "
+            "Match this specific object's real silhouette, proportions, parts, and "
+            "dominant colors/materials exactly — it is the ground truth."
+        ),
+        sources=[],
+    )

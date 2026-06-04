@@ -90,9 +90,13 @@ async def critique_render(
                 f"Real reference photo of '{name}' — the model should resemble this "
                 f"(shape, proportions, color):"
             )
-            for p in ref.images:
-                if Path(p).exists():
-                    content.append(image_content(p))
+            for i, p in enumerate(ref.images):
+                if not Path(p).exists():
+                    continue
+                # When the photos are user-supplied, name the angle (front/back/side).
+                if i < len(ref.image_labels):
+                    content.append(f"'{name}' — {ref.image_labels[i]} view:")
+                content.append(image_content(p))
 
     result = await critic_agent.run(content)
     return result.output

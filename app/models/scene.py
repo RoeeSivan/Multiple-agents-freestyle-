@@ -149,6 +149,40 @@ class Reference(BaseModel):
     sources: list[str] = Field(default_factory=list, description="source page URLs")
     # Filled in after the agent runs (local paths of downloaded images); not the agent's job.
     images: list[str] = Field(default_factory=list)
+    # View label per image, aligned to `images` (e.g. ["front","back","side"]); used
+    # when the photos are user-supplied so the builder/critic know each angle. Empty
+    # for web references (the angle is unknown / mixed).
+    image_labels: list[str] = Field(default_factory=list)
+
+
+class ObjectViews(BaseModel):
+    """ViewPlanner verdict for ONE object: does it need user photos, and which?
+
+    Decided per object in isolation — one object's need never implies another's.
+    """
+
+    object_name: str = Field(description="must match an ObjectBrief.name in the spec")
+    needs_photos: bool = Field(
+        default=False,
+        description="True only if the object's exact look is personal/specific enough "
+        "that the user's own photos beat a generic web image",
+    )
+    views: list[str] = Field(
+        default_factory=list,
+        description="ordered view keys to request, 2-4 of front/back/side/top; empty "
+        "when needs_photos is False",
+    )
+    prompts: list[str] = Field(
+        default_factory=list,
+        description="friendly one-line request per view, aligned to `views`, e.g. "
+        "'Great! Send a photo of the chair from the front.'",
+    )
+
+
+class PhotoPlan(BaseModel):
+    """ViewPlanner output: which objects need user photos and which views."""
+
+    objects: list[ObjectViews] = Field(default_factory=list)
 
 
 class ObjectAudit(BaseModel):

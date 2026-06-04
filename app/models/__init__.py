@@ -7,7 +7,9 @@ from app.models.scene import (
     GeometryAudit,
     ObjectAudit,
     ObjectBrief,
+    ObjectViews,
     Part,
+    PhotoPlan,
     Reference,
 )
 
@@ -21,4 +23,6 @@ __all__ = [
     "ObjectAudit",
     "GeometryAudit",
     "Reference",
+    "ObjectViews",
+    "PhotoPlan",
 ]

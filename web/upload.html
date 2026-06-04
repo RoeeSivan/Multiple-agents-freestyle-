@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Send your photos</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1b2433, #0c0f15 70%);
+      color: #e7ecf3; min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 20px;
+    }
+    .card {
+      width: 100%; max-width: 480px; background: #131922; border: 1px solid #232c3a;
+      border-radius: 18px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    }
+    .top { padding: 18px 20px 0; }
+    .kicker { color: #6c7a8c; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+    h1 { margin: 4px 0 12px; font-size: 18px; font-weight: 650; }
+    .bar { height: 6px; border-radius: 999px; background: #232c3a; overflow: hidden; margin-bottom: 4px; }
+    .bar > i { display: block; height: 100%; width: 0; border-radius: 999px;
+      background: linear-gradient(135deg, #4f8cff, #6a5cff); transition: width .35s ease; }
+    .count { color: #6c7a8c; font-size: 12px; }
+    .body { padding: 16px 20px 22px; }
+    .prompt { font-size: 17px; font-weight: 600; line-height: 1.35; margin: 6px 0 4px; }
+    .sub { color: #9fb0c3; font-size: 13px; margin: 0 0 16px; }
+    .view-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+      font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: #cdd8e6;
+      background: #1c2735; border: 1px solid #2a3850; }
+    .drop {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; aspect-ratio: 4/3; width: 100%; border: 2px dashed #2f3b4e; border-radius: 14px;
+      background: #0f141d; color: #9fb0c3; cursor: pointer; text-align: center; padding: 16px;
+      position: relative; overflow: hidden; transition: border-color .2s, background .2s;
+    }
+    .drop:active { border-color: #6a5cff; background: #121a26; }
+    .drop .cam { font-size: 34px; }
+    .drop .hint { font-size: 13px; }
+    .drop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .drop input { display: none; }
+    .drop .uploading { position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; background: rgba(8,11,16,.65); font-weight: 600; color: #e7ecf3; }
+    .spin { width: 30px; height: 30px; border: 3px solid #2a3444; border-top-color: #6a5cff;
+      border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .thumb { width: 56px; height: 56px; border-radius: 10px; overflow: hidden; position: relative;
+      border: 1px solid #2a3850; background: #0f141d; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .thumb.todo { display: flex; align-items: center; justify-content: center; color: #54627a;
+      font-size: 11px; text-transform: capitalize; border-style: dashed; }
+    .thumb .tag { position: absolute; bottom: 0; left: 0; right: 0; font-size: 9px; text-align: center;
+      background: rgba(8,11,16,.7); color: #cdd8e6; padding: 1px 0; text-transform: capitalize; }
+    .actions { margin-top: 18px; }
+    button.primary {
+      width: 100%; border: none; padding: 14px; border-radius: 12px; font-weight: 650; font-size: 15px;
+      color: white; background: linear-gradient(135deg, #4f8cff, #6a5cff); cursor: pointer;
+    }
+    button.primary[disabled] { opacity: .4; cursor: default; }
+    .ghost { width: 100%; margin-top: 10px; background: none; border: none; color: #9fb0c3;
+      font-size: 13px; cursor: pointer; padding: 6px; }
+    .center { text-align: center; padding: 26px 20px 30px; }
+    .center .big { font-size: 40px; margin-bottom: 8px; }
+    .center h2 { margin: 0 0 6px; font-size: 18px; }
+    .center p { color: #9fb0c3; font-size: 14px; margin: 0; }
+    a.link { color: #6a9bff; text-decoration: none; font-weight: 600; }
+    .err { color: #ff9a9a; font-size: 13px; margin-top: 10px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="center"><div class="spin" style="margin:0 auto"></div></div>
+  </div>
+
+  <script>
+    const SID = "__SID__";
+    const card = document.getElementById('card');
+    let intake = null;     // last /api/intake payload
+    let steps = [];        // flattened [{object,label,view,prompt,uploaded,url}]
+    let idx = 0;           // current step index
+    let busy = false;
+
+    function flatten(data) {
+      const out = [];
+      for (const o of data.objects) {
+        for (const v of o.views) {
+          out.push({ object: o.name, label: o.label, view: v.view, prompt: v.prompt,
+                     uploaded: v.uploaded, url: v.url });
+        }
+      }
+      return out;
+    }
+
+    function firstMissing() {
+      const i = steps.findIndex(s => !s.uploaded);
+      return i === -1 ? steps.length : i;
+    }
+
+    async function load() {
+      try {
+        const r = await fetch(`/api/intake/${SID}`, { cache: 'no-store' });
+        const data = await r.json();
+        if (!data.active) return renderInactive();
+        intake = data; steps = flatten(data); idx = firstMissing();
+        render();
+      } catch (e) { renderInactive(); }
+    }
+
+    function renderInactive() {
+      card.innerHTML = `<div class="center">
+        <div class="big">📭</div><h2>No photos requested</h2>
+        <p>Text the number a thing to build — I'll ask for photos if I need them.</p>
+      </div>`;
+    }
+
+    function progressHtml() {
+      const done = steps.filter(s => s.uploaded).length;
+      const pct = steps.length ? Math.round(100 * done / steps.length) : 0;
+      return `<div class="bar"><i style="width:${pct}%"></i></div>
+              <div class="count">${done} of ${steps.length} photos</div>`;
+    }
+
+    function thumbsHtml(objectName) {
+      const own = steps.filter(s => s.object === objectName);
+      return `<div class="thumbs">` + own.map(s => s.uploaded
+        ? `<div class="thumb"><img src="${s.url}" alt=""><span class="tag">${s.view}</span></div>`
+        : `<div class="thumb todo">${s.view}</div>`).join('') + `</div>`;
+    }
+
+    function render() {
+      if (idx >= steps.length) return renderReady();
+      const s = steps[idx];
+      card.innerHTML = `
+        <div class="top">
+          <div class="kicker">Building: ${s.label}</div>
+          <h1>Send your photos 📸</h1>
+          ${progressHtml()}
+        </div>
+        <div class="body">
+          <span class="view-chip">${s.view} view</span>
+          <p class="prompt">${s.prompt}</p>
+          <p class="sub">Tap to take a photo or pick one from your library.</p>
+          <label class="drop" id="drop">
+            <div class="cam">📷</div>
+            <div class="hint">Tap to add the ${s.view} photo</div>
+            <input type="file" accept="image/*" capture="environment" id="file" />
+          </label>
+          ${thumbsHtml(s.object)}
+          <div class="err" id="err"></div>
+        </div>`;
+      document.getElementById('file').addEventListener('change', onFile);
+    }
+
+    async function onFile(ev) {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f || busy) return;
+      busy = true;
+      const s = steps[idx];
+      const drop = document.getElementById('drop');
+      drop.insertAdjacentHTML('beforeend', `<div class="uploading"><div class="spin"></div></div>`);
+      try {
+        const fd = new FormData();
+        fd.append('object', s.object); fd.append('view', s.view); fd.append('file', f);
+        const r = await fetch(`/u/${SID}/photo`, { method: 'POST', body: fd });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'upload failed');
+        intake = data; steps = flatten(data); idx = firstMissing();
+        busy = false; render();
+      } catch (e) {
+        busy = false;
+        const err = document.getElementById('err');
+        if (err) err.textContent = '⚠️ ' + e.message + ' — try again.';
+        const u = drop.querySelector('.uploading'); if (u) u.remove();
+      }
+    }
+
+    function renderReady() {
+      const label = (intake.objects[0] && intake.objects[0].label) || 'your object';
+      card.innerHTML = `
+        <div class="top">
+          <div class="kicker">All photos in</div>
+          <h1>Ready to build ✅</h1>
+          ${progressHtml()}
+        </div>
+        <div class="body">
+          <p class="sub">Got every angle. I'll model your ${label} from these and text you the link.</p>
+          ${intake.objects.map(o => thumbsHtml(o.name)).join('')}
+          <div class="actions">
+            <button class="primary" id="build">Build my 3D model</button>
+            <button class="ghost" id="more">Add / retake a photo</button>
+          </div>
+          <div class="err" id="err"></div>
+        </div>`;
+      document.getElementById('build').addEventListener('click', complete);
+      document.getElementById('more').addEventListener('click', () => { idx = 0; render(); });
+    }
+
+    async function complete() {
+      const btn = document.getElementById('build');
+      btn.disabled = true; btn.textContent = 'Sending to the builder…';
+      try {
+        const r = await fetch(`/u/${SID}/complete`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'could not start build');
+        renderBuilding();
+      } catch (e) {
+        btn.disabled = false; btn.textContent = 'Build my 3D model';
+        document.getElementById('err').textContent = '⚠️ ' + e.message;
+      }
+    }
+
+    function renderBuilding() {
+      card.innerHTML = `
+        <div class="center">
+          <div class="spin" style="margin:0 auto 14px"></div>
+          <h2>Building your model…</h2>
+          <p>This takes ~1 minute. I'll text you when it's ready —<br/>
+             or <a class="link" href="/v/${SID}">watch it live</a>.</p>
+        </div>`;
+    }
+
+    load();
+  </script>
+</body>
+</html>
