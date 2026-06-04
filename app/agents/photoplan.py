@@ -22,15 +22,18 @@ or just model it from a generic web reference. You are given a build plan with o
 or more objects. Judge EACH object completely on its own — one object needing
 photos says nothing about another.
 
-Set needs_photos = TRUE for an object when the user clearly means a SPECIFIC,
-PERSONAL, or NON-GENERIC item whose exact look matters and varies a lot between
-instances — e.g. "my desk chair", "this lamp", "my dog", a custom/handmade or
-unusual object. The user's own photos let the modeler match THEIR object.
+Default to ASKING. Set needs_photos = TRUE whenever the object's exact design
+VARIES A LOT between real instances, so the user's own photos pin down the one they
+mean. This covers most real-world things: furniture (a chair, a table, a lamp,
+a desk), vehicles, appliances, tools, gadgets, bags, shoes, toys, buildings,
+characters/pets, and anything with "my"/"this"/a brand or distinctive style. A
+plain "a plastic chair" or "a wooden chair" STILL gets photos — chairs come in
+countless shapes, and the user has a specific one in mind.
 
-Set needs_photos = FALSE when any decent web image would do — generic, standardized,
-or iconic objects (a soccer ball, a coffee mug, a standard cube, a banana, a
-typical office chair with no personal qualifier). Don't ask for photos you don't
-need.
+Set needs_photos = FALSE only for STANDARDIZED or ICONIC objects that look
+essentially the same everywhere, where any web image is a faithful stand-in — e.g.
+a soccer ball, a basketball, a tennis ball, a banana, an apple, a basic mug, a
+plain cube/sphere/cylinder, a standard dice, a stop sign. When in doubt, ASK.
 
 When needs_photos is TRUE, choose 2-4 VIEWS that actually disambiguate the shape,
 in capture order. Use only these keys: "front", "back", "side", "top". Most objects

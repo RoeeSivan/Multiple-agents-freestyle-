@@ -107,17 +107,25 @@ def _cache_key(brief: ObjectBrief) -> str:
     return hashlib.sha1(f"{brief.name}|{brief.description}".encode()).hexdigest()[:16]
 
 
-async def _download_images(urls: list[str], dest: Path, key: str) -> list[str]:
-    """Download up to `reference_images` images; return local paths (skip failures)."""
+_IMG_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+
+
+async def _download_images(urls: list[str], dest: Path, key: str, want: int | None = None) -> list[str]:
+    """Download images until `want` succeed; walks the WHOLE list so a few bad URLs
+    don't starve the builder. Returns local paths (skips failures)."""
+    want = want or settings.reference_images
     dest.mkdir(parents=True, exist_ok=True)
     paths: list[str] = []
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-        for i, url in enumerate(urls[: settings.reference_images]):
+        for i, url in enumerate(urls):
+            if len(paths) >= want:
+                break
             try:
                 r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
                 r.raise_for_status()
-                ctype = r.headers.get("content-type", "")
-                if not ctype.startswith("image/") or len(r.content) > 12_000_000:
+                ctype = r.headers.get("content-type", "").lower()
+                url_is_img = url.lower().split("?")[0].endswith(_IMG_SUFFIXES)
+                if (not ctype.startswith("image/") and not url_is_img) or len(r.content) > 12_000_000:
                     continue
                 ext = {"image/png": ".png", "image/webp": ".webp"}.get(ctype, ".jpg")
                 p = dest / f"{key}_{i}{ext}"
@@ -126,6 +134,37 @@ async def _download_images(urls: list[str], dest: Path, key: str) -> list[str]:
             except Exception as e:  # noqa: BLE001 — one bad URL shouldn't sink the rest
                 log.warning("ref image download failed %s: %s", url, e)
     return paths
+
+
+def _search_image_urls(query: str, limit: int = 12) -> list[str]:
+    """Direct image search (keyless) -> candidate full-size URLs. Degrades to []."""
+    try:
+        res = DDGS().images(query, max_results=limit)
+    except Exception as e:  # noqa: BLE001 — network/ratelimit
+        log.warning("fallback image search failed for %r: %s", query, e)
+        return []
+    return [r.get("image", "") for r in res if r.get("image")]
+
+
+def _fallback_image_urls(brief: ObjectBrief) -> list[str]:
+    """When the agent picks no images, search directly so the builder is never blind.
+
+    Tries a few query phrasings and de-dupes, preserving order (best first)."""
+    queries = [
+        f"{brief.name.replace('_', ' ')} product photo white background",
+        brief.description,
+        brief.name.replace("_", " "),
+    ]
+    seen: set[str] = set()
+    out: list[str] = []
+    for q in queries:
+        for u in _search_image_urls(q):
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+        if len(out) >= settings.reference_images * 3:
+            break
+    return out
 
 
 async def get_reference(brief: ObjectBrief, out_dir: Path) -> Reference | None:
@@ -142,7 +181,8 @@ async def get_reference(brief: ObjectBrief, out_dir: Path) -> Reference | None:
     if cache_file.exists():
         try:
             ref = Reference.model_validate_json(cache_file.read_text())
-            if all(Path(p).exists() for p in ref.images):
+            # An empty-image cache is NOT a hit — re-fetch so the fallback can run.
+            if ref.images and all(Path(p).exists() for p in ref.images):
                 return ref
         except Exception:  # noqa: BLE001 — bad cache, just re-fetch
             pass
@@ -157,6 +197,18 @@ async def get_reference(brief: ObjectBrief, out_dir: Path) -> Reference | None:
         ref = result.output
         ref.object_name = brief.name
         ref.images = await _download_images(ref.image_urls, refs_dir, key)
+
+        # NEVER let the builder model blind: if the agent chose no usable images (or
+        # they all failed to download), fall back to a direct image search.
+        if not ref.images:
+            fallback = _fallback_image_urls(brief)
+            if fallback:
+                log.info("reference %r: agent gave 0 images, falling back to %d search hits",
+                         brief.name, len(fallback))
+                ref.images = await _download_images(fallback, refs_dir, key)
+                if not ref.image_urls:
+                    ref.image_urls = fallback[: settings.reference_images]
+
         refs_dir.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(ref.model_dump_json(indent=2))
         return ref

@@ -66,5 +66,30 @@ def test_stale_cache_missing_image_refetches(tmp_path, monkeypatch):
         return _Res()
 
     monkeypatch.setattr(refmod.reference_agent, "run", _stub)
+    monkeypatch.setattr(refmod, "_fallback_image_urls", lambda brief: [])  # keep offline
     ref = asyncio.run(get_reference(brief, tmp_path))
     assert ref is not None and ref.real_dims_m == 0.35  # came from the re-fetch
+
+
+def test_fallback_runs_when_agent_returns_no_images(tmp_path, monkeypatch):
+    # Agent picks 0 images -> the direct-search fallback must kick in so the builder
+    # is never blind. Both the search and the download are stubbed (offline).
+    monkeypatch.setattr(refmod.settings, "web_reference", True)
+    brief = _brief()
+
+    class _Res:
+        output = Reference(object_name="macbook", real_dims_m=0.35, image_urls=[])
+
+    async def _stub(*a, **k):
+        return _Res()
+
+    async def _fake_download(urls, dest, key, want=None):
+        return ["/tmp/fallback_0.jpg"] if urls else []
+
+    monkeypatch.setattr(refmod.reference_agent, "run", _stub)
+    monkeypatch.setattr(refmod, "_fallback_image_urls", lambda brief: ["https://x/y.jpg"])
+    monkeypatch.setattr(refmod, "_download_images", _fake_download)
+    ref = asyncio.run(get_reference(brief, tmp_path))
+    assert ref is not None
+    assert ref.images == ["/tmp/fallback_0.jpg"]          # fallback populated images
+    assert ref.image_urls == ["https://x/y.jpg"]          # and recorded the source url

@@ -10,6 +10,8 @@ and tells it how to reshape, looping until it reads right.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from pathlib import Path
 
 from pydantic_ai import Agent
@@ -18,6 +20,8 @@ from pydantic_ai.mcp import MCPServerStdio
 from app.agents.reference import image_content
 from app.config import settings
 from app.models import BuildReport, BuildSpec, Reference
+
+log = logging.getLogger("builder")
 
 # blender-mcp connects to the live Blender addon. We spawn it as the agent's
 # toolset: execute_blender_code (the modeling workhorse), get_scene_info,
@@ -152,6 +156,20 @@ async def build_scene(
                     content.append(f"'{name}' — {ref.image_labels[i]} view:")
                 content.append(image_content(p))
 
-    async with builder_agent:
-        result = await builder_agent.run(content if len(content) > 1 else prompt)
-    return result.output
+    # Spawning the blender-mcp stdio toolset can lose a cold-start race (the first
+    # `uvx blender-mcp` resolves/installs the package while the MCP init handshake
+    # times out -> BrokenResourceError). The connect happens before any bpy runs, so
+    # a retry is safe. Back off and try again a couple times before giving up.
+    payload = content if len(content) > 1 else prompt
+    last_err: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            async with builder_agent:
+                result = await builder_agent.run(payload)
+            return result.output
+        except Exception as e:  # noqa: BLE001 — retry transient MCP-connect failures
+            last_err = e
+            log.warning("builder MCP attempt %d/3 failed: %s", attempt, e)
+            if attempt < 3:
+                await asyncio.sleep(2.0 * attempt)
+    raise RuntimeError(f"builder failed after 3 attempts: {last_err}") from last_err
