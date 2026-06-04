@@ -19,13 +19,16 @@ writes geometry code; nothing is imported from an asset library. PydanticAI
 agents share a typed contract (`BuildSpec`):
 - **RouterAgent** [app/agents/router.py](app/agents/router.py) — triage: `new` / `edit` / `chat`.
 - **InfoAgent** [app/agents/info.py](app/agents/info.py) — asks **one** clarifying SMS question only when a request is genuinely too vague (conservative; most requests build with defaults).
-- **PlannerAgent** [app/agents/intent.py](app/agents/intent.py) — text → `BuildSpec` (decomposes a scene into distinct whole objects, each described by FORM/parts + size/material/position hints); also applies edits. (Module still named `intent.py`; `intent_agent` is an alias of `planner_agent`.)
-- **BuilderAgent** [app/agents/builder.py](app/agents/builder.py) — the star. Drives a **live Blender via the blender-mcp MCP toolset** (spawned as a PydanticAI `MCPServerStdio`): it **models each object from scratch** with `execute_blender_code` — primitives shaped with modifiers (Subdivision/Bevel/Mirror/Solidify), `shade_smooth`, joined parts, Principled-BSDF materials — seats them on the ground, optionally pulls a **PolyHaven** HDRI for lighting. Returns a `BuildReport`. (Same technique as the sibling "Final project" `blender/*.py` scripts — Claude writing bpy — but live over MCP and looped by the critic.)
-- **VisionCritic** [app/agents/critic.py](app/agents/critic.py) — *looks at the rendered PNG* → `Critique` telling the builder how to reshape; tuned to **converge**, not chase photorealism.
+- **PlannerAgent** [app/agents/intent.py](app/agents/intent.py) — text → `BuildSpec`. Decomposes a scene into distinct whole objects, and decomposes **each object into structured `parts`** (`name`, `shape_hint`, `approx_dims_m`, `anchor`) plus `proportions` and `symmetry` — a stable structural contract the builder follows. Also applies edits. (Module still named `intent.py`; `intent_agent` is an alias of `planner_agent`.)
+- **ReferenceAgent** [app/agents/reference.py](app/agents/reference.py) — web grounding. Keyless DuckDuckGo (`ddgs`) tools `search_images` / `search_web`: finds real product photos + real dimensions/facts of each object → `Reference` (chosen photo URLs, `real_dims_m`, `facts`, sources). `get_reference` downloads photos to `out/<sid>/refs/`, caches per object, degrades to `None` on any failure. Toggle with `WEB_REFERENCE` (default on).
+- **BuilderAgent** [app/agents/builder.py](app/agents/builder.py) — the star. Drives a **live Blender via the blender-mcp MCP toolset** (spawned as a PydanticAI `MCPServerStdio`): it **models each object from scratch** with `execute_blender_code` — builds the planned **parts** at their dims, anchors them so they touch, **Mirror** modifier for declared `symmetry`, plus Subdivision/Bevel/Solidify, `shade_smooth`, joined parts, Principled-BSDF materials — seats them on the ground. On a fresh build it's fed the **real reference photos + facts** and models toward them. Returns a `BuildReport`.
+- **VisionCritic** [app/agents/critic.py](app/agents/critic.py) — looks at **5 rendered views** (front/three-quarter/side/back/top) + the real reference photos → `Critique` telling the builder how to reshape (catches scatter/asymmetry/back-face errors a single view hid; compares to ground truth). Tuned to **converge**, not chase photorealism.
 
-Programmatic hand-off loop in [app/pipeline.py](app/pipeline.py): Planner → (clear) → Builder → render → Critic → (refine via Builder) → … capped at `MAX_ITERATIONS` (default 3). One Blender = one scene, so the whole Blender interaction is serialized behind a module-level `_BUILD_LOCK`.
+Programmatic hand-off loop in [app/pipeline.py](app/pipeline.py): Planner → ReferenceAgent (per object, concurrent) → (clear) → Builder → **geometry audit + 5-view render** → Critic → (refine via Builder) → … capped at `MAX_ITERATIONS` (default 3). **Converges only when the critic AND the deterministic audit both pass.** Then hero render + `export_glb` + a **turntable mp4**. One Blender = one scene, so the whole Blender interaction is serialized behind a module-level `_BUILD_LOCK`.
 
-Geometry backend [app/rendering/blender_io.py](app/rendering/blender_io.py): deterministic JSON-over-TCP to the BlenderMCP socket addon (port 9876) — the mechanical steps around the agent: `clear_scene`, `run_code`, `render_png` (places a camera with bounding-sphere math + guarantees lighting, then a fast **Eevee** render — chrome-free and consistently framed), and `export_glb` (recenters to origin + drops to ground, **`export_apply=True`** to bake the builder's modifiers; Blender is **Z-up** → glTF Y-up; game-ready). The legacy Three.js renderer ([app/rendering/renderer.py](app/rendering/renderer.py) + [web/scene.html](web/scene.html)) is kept on disk for reference but **no longer wired in**.
+Deterministic geometry audit [app/rendering/geometry_audit.py](app/rendering/geometry_audit.py): no LLM. Measures the live scene with bpy (per-object bbox/size, connected-component islands grouped by bbox overlap = a robust scatter detector, empty/missing checks) and emits exact builder instructions ("scale by ~0.32x"). Sized against the reference's `real_dims_m` when available (else the planner guess). Fed back to the builder **alongside** the critic, so mis-size/scatter get caught without spending a vision pass.
+
+Geometry backend [app/rendering/blender_io.py](app/rendering/blender_io.py): deterministic JSON-over-TCP to the BlenderMCP socket addon (port 9876) — the mechanical steps around the agent: `clear_scene`, `run_code`, `render_png` (single hero shot), `render_views` (the 5 critic angles, shared bbox/grounding + a `_QUALITY_SETUP`: 3-point sun rig, ambient occlusion, soft shadows, Eevee samples), `render_turntable` (orbits a Track-To camera, renders a PNG frame sequence, encodes to mp4 with the **host's ffmpeg** since this Blender build has no FFMPEG muxer; returns `None` if ffmpeg is absent), and `export_glb` (recenters + drops to ground, **`export_apply=True`** to bake modifiers; Blender **Z-up** → glTF Y-up; game-ready). The legacy Three.js renderer ([app/rendering/renderer.py](app/rendering/renderer.py) + [web/scene.html](web/scene.html)) is kept on disk for reference but **no longer wired in**.
 
 Saperly [app/messaging/saperly.py](app/messaging/saperly.py): REST via httpx (the pip package is not actually installable). Base `https://saperly.com/api/v1`, Bearer auth. send_sms / resolve_line_id / record_consent / update_line.
 
@@ -63,10 +66,14 @@ connects to the same addon socket, so multiple clients on :9876 is expected.
 
 ## Status / next
 
-Agentic-modeling backend wired + verified end-to-end via MCP: text → Planner →
-Builder models in live Blender (`execute_blender_code`) → Eevee render → glb. A
-"wooden chair" built in ~22s (one pass). **Open quality work:** single-pass LLM
-bpy is error-prone (mis-sized/scattered parts); leaning on the VisionCritic
-reshape loop + the sizing rules in the builder prompt. Planned next: tune the
-builder prompt for cleaner geometry, then a **build timeline** UI showing each
-refine pass + the critic's feedback for the demo.
+Agentic-modeling backend wired + verified end-to-end via MCP. **Accuracy push
+shipped (4 workstreams):** (1) multi-view critic + deterministic geometry audit,
+(2) structured spec — parts/anchors/symmetry, (3) web reference agent (real photos
++ real dims as ground truth), (4) render polish (3-point/AO) + orbiting turntable
+mp4. The old "single-pass bpy is error-prone (mis-sized/scattered)" failure mode
+is now caught by the audit (exact numbers, no vision cost) and the 5-view critic;
+proportions/size are grounded in real web data. "a coffee mug" e2e in ~48s:
+parts+symmetry plan, real 0.12 m reference + 3 photos, png + glb + 245 KB
+turntable. **Next:** a **build timeline** UI showing each refine pass + the
+critic/audit feedback for the demo; consider a vetted bpy helper lib to cut the
+builder's occasional syntax errors (currently absorbed by `retries=2`).
