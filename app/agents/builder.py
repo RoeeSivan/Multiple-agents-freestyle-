@@ -179,8 +179,20 @@ enough.
 
 MATERIAL & COLOR (the critic fails builds that stay default grey/white — treat
 color as REQUIRED): give every object a set_material() whose color matches the
-object's `material_hint` and the reference facts. TRANSLATE the named material into
-a concrete (r,g,b) in 0..1 and set metallic for metals. Common mappings:
+object's `material_hint`. TRANSLATE the named material/color into a concrete
+(r,g,b) in 0..1 and set metallic for metals.
+THE REQUESTED COLOR WINS OVER THE REFERENCE. If `material_hint` (or the request)
+names a color/finish, that color is REQUIRED and OVERRIDES the reference photos —
+the reference grounds silhouette/proportions/size, NOT color when a color was
+asked for. A "red soccer ball" is RED even though real soccer balls are white/
+black; a "white chair" is white even if the reference photo is wood. Only fall
+back to the reference's real color when the user named no color.
+Named colors -> (r,g,b) (nudged off pure so they read natural):
+- red (0.75, 0.05, 0.05) · orange (0.85, 0.35, 0.05) · yellow (0.88, 0.72, 0.05)
+- green (0.10, 0.55, 0.18) · blue (0.10, 0.25, 0.72) · purple (0.40, 0.12, 0.55)
+- pink (0.90, 0.45, 0.62) · white (0.90, 0.90, 0.90) · black (0.03, 0.03, 0.03)
+- grey (0.50, 0.50, 0.50) · brown (0.35, 0.20, 0.10)
+Named materials -> (r,g,b):
 - light oak / natural wood -> (0.62, 0.46, 0.28), roughness 0.6, metallic 0
 - dark/walnut wood -> (0.30, 0.18, 0.09); weathered wood -> (0.55, 0.42, 0.30)
 - black metal / iron -> (0.04, 0.04, 0.05), roughness 0.4, metallic 1.0
@@ -199,8 +211,9 @@ the `proportions`, then join. If `parts` is empty, compose the object yourself f
 the description. Mirror symmetric parts by building both sides (e.g. the leg loop).
 
 REFERENCE PHOTOS: you may be given real reference photos + facts. Match the real
-silhouette, proportions, part layout, and dominant color/material — the reference
-is ground truth, prefer it over your assumptions.
+silhouette, proportions, and part layout — the reference is ground truth for SHAPE
+and SIZE, prefer it over your assumptions. For COLOR, the requested color/finish
+wins (see above): only adopt the reference's color when the user named none.
 
 COORDINATES: Blender is Z-UP, meters, ground z = 0. Place distinct objects apart
 per each object's position_hint.
@@ -279,6 +292,7 @@ async def build_scene(
     # object's photos or geometry into another's build.
     content: list = [prompt]
     if references and not feedback:
+        briefs = {b.name: b for b in spec.objects}
         for name, ref in references.items():
             if ref is None or not ref.images:
                 continue
@@ -286,6 +300,14 @@ async def build_scene(
             if ref.real_dims_m:
                 note += f" Real longest dimension ~{ref.real_dims_m} m."
             content.append(note)
+            # An explicit requested color/finish OVERRIDES the reference photo's
+            # colors — tie it to THIS object so it can't be lost.
+            brief = briefs.get(name)
+            if brief and brief.material_hint:
+                content.append(
+                    f"REQUIRED COLOR/FINISH for '{name}': {brief.material_hint} — "
+                    "this OVERRIDES the reference photo colors."
+                )
             for i, p in enumerate(ref.images):
                 if not Path(p).exists():
                     continue

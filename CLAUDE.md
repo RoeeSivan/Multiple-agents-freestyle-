@@ -31,7 +31,7 @@ Programmatic hand-off loop in [app/pipeline.py](app/pipeline.py): Planner → Re
 
 Deterministic geometry audit [app/rendering/geometry_audit.py](app/rendering/geometry_audit.py): no LLM. Measures the live scene with bpy (per-object bbox/size, connected-component islands grouped by bbox overlap = a robust scatter detector, empty/missing checks) and emits exact builder instructions ("scale by ~0.32x"). Sized against the reference's `real_dims_m` when available (else the planner guess). Fed back to the builder **alongside** the critic, so mis-size/scatter get caught without spending a vision pass.
 
-Geometry backend [app/rendering/blender_io.py](app/rendering/blender_io.py): deterministic JSON-over-TCP to the BlenderMCP socket addon (port 9876) — the mechanical steps around the agent: `clear_scene`, `run_code`, `render_png` (single hero shot), `render_views` (the 5 critic angles, shared bbox/grounding + a `_QUALITY_SETUP`: 3-point sun rig, ambient occlusion, soft shadows, Eevee samples), `render_turntable` (orbits a Track-To camera, renders a PNG frame sequence, encodes to mp4 with the **host's ffmpeg** since this Blender build has no FFMPEG muxer; returns `None` if ffmpeg is absent), and `export_glb` (recenters + drops to ground, **`export_apply=True`** to bake modifiers; Blender **Z-up** → glTF Y-up; game-ready). The legacy Three.js renderer ([app/rendering/renderer.py](app/rendering/renderer.py) + [web/scene.html](web/scene.html)) is kept on disk for reference but **no longer wired in**.
+Geometry backend [app/rendering/blender_io.py](app/rendering/blender_io.py): deterministic JSON-over-TCP to the BlenderMCP socket addon (port 9876) — the mechanical steps around the agent: `clear_scene`, `run_code`, `render_png` (single hero shot), `render_views` (the 5 critic angles, shared bbox/grounding + a `_QUALITY_SETUP`: **Standard view transform** so set colors render true — not AgX-desaturated — plus a 3-point sun rig, ambient occlusion, soft shadows, Eevee samples), `render_turntable` (orbits a Track-To camera, renders a PNG frame sequence, encodes to mp4 with the **host's ffmpeg** since this Blender build has no FFMPEG muxer; returns `None` if ffmpeg is absent), and `export_glb` (recenters + drops to ground, **`export_apply=True`** to bake modifiers; Blender **Z-up** → glTF Y-up; game-ready).
 
 Saperly [app/messaging/saperly.py](app/messaging/saperly.py): REST via httpx (the pip package is not actually installable). Base `https://saperly.com/api/v1`, Bearer auth. send_sms / resolve_line_id / record_consent / update_line.
 
@@ -84,7 +84,19 @@ turntable.
 decides per object → upload-link wizard collects views one-by-one → `build_3d`
 grounds photos-only on them. Saperly has no inbound MMS, so photos come via the
 link, not the text thread. Offline-tested (schemas, FSM, upload HTTP via
-TestClient); `scripts.photo_intake_smoke` de-risks the build path. **Next:** live
-e2e over the tunnel (text → upload → glb); a **build timeline** UI showing each
-refine pass; consider a vetted bpy helper lib to cut the builder's occasional
-syntax errors (currently absorbed by `retries=2`).
+TestClient); `scripts.photo_intake_smoke` de-risks the build path.
+
+**Color-fidelity + cleanup pass shipped** (ship-prep for the chair/table/soccer-
+ball demo): a stated **color/finish now survives end-to-end and OVERRIDES the web
+reference** — planner always copies it into `material_hint`; builder has a named-
+color→RGB palette + a hard "requested color wins over the reference photo" rule
+and an explicit per-object `REQUIRED COLOR` note in `build_scene`; critic judges
+color against the request, not the reference; render pins
+`view_settings.view_transform='Standard'` so a set red renders red, not AgX-muddy.
+So "a red soccer ball" comes back red even though real balls are white/black.
+**Cleanup:** deleted the dead legacy Three.js renderer stack (`renderer.py`,
+`web/scene.html`, `web/vendor/` 1.3 MB, `playwright` dep) + dead `*_status`
+wrappers; trimmed stale Rodin/PolyHaven docstrings. `pytest -q` green (27).
+
+**Next:** live e2e over the tunnel (text → glb) for the 3 demo objects + record
+the video; a **build timeline** UI showing each refine pass.

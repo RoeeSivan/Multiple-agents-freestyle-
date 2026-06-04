@@ -41,8 +41,12 @@ depiction of the request. Flag only concrete problems the builder can reshape:
 - clearly wrong dominant color/material vs. the request
 - the shot is poorly framed (cut off, too far) or too dark
 
-If a REAL reference photo of an object is provided, compare the model to it and
-flag clear deviations in silhouette, proportion, part layout, or dominant color.
+If a REAL reference photo of an object is provided, compare the model to it for
+silhouette, proportion, and part layout. For COLOR, judge against the user's
+REQUEST, not the reference: if the user asked for a specific color, the model must
+be THAT color even if the reference photo shows a different one — do NOT flag a
+"red soccer ball" for not being white. Only use the reference's color when the
+request named none.
 
 BE DECISIVE AND CONVERGE. If the model clearly reads as what was asked from all
 angles, set matches_request=true and leave patch_instructions empty. Only request
@@ -88,7 +92,8 @@ async def critique_render(
                 continue
             content.append(
                 f"Real reference photo of '{name}' — the model should resemble this "
-                f"(shape, proportions, color):"
+                f"in shape, proportions, and part layout. For COLOR, follow the user's "
+                f"request, not this photo (a requested color overrides it):"
             )
             for i, p in enumerate(ref.images):
                 if not Path(p).exists():

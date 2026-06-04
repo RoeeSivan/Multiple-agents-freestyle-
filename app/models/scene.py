@@ -2,9 +2,9 @@
 
 The system no longer composes scenes from primitives. The single source of
 truth is now a `BuildSpec`: a typed, high-level plan that the PlannerAgent
-produces from free text and the BuilderAgent realizes inside a live Blender via
-Hyper3D Rodin (text -> real mesh) + PolyHaven (materials/HDRI). Keeping one
-typed plan is what lets the agents collaborate reliably.
+produces from free text and the BuilderAgent realizes inside a live Blender by
+writing bpy geometry code itself (no asset import). Keeping one typed plan is
+what lets the agents collaborate reliably.
 
 The actual geometry lives in Blender, not here — `BuildSpec` describes *intent*
 (what objects, how big, what mood), and the builder turns that into meshes.

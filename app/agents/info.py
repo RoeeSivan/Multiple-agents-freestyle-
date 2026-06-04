@@ -1,8 +1,8 @@
 """InfoAgent — gathers a missing detail before an expensive build.
 
-A text-to-3D generation is slow and costs a Rodin credit, so when a request is
-genuinely too vague to build something the user will recognize, it's worth one
-quick SMS question first. This agent is deliberately CONSERVATIVE: most requests
+A full agentic build (model + multi-view critic loop) is slow and spends model
+tokens, so when a request is genuinely too vague to build something the user will
+recognize, it's worth one quick SMS question first. This agent is deliberately CONSERVATIVE: most requests
 are buildable with sensible defaults (the user can always refine by replying),
 so it asks at most one batched question and only when a key detail is missing.
 """

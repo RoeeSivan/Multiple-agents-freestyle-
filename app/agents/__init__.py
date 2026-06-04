@@ -5,8 +5,8 @@ The multi-agent cast:
 - InfoAgent    (info.py)     asks one clarifying question when a request is too vague.
 - PlannerAgent (intent.py)   turns text into a typed BuildSpec.
 - ViewPlanner  (photoplan.py) decides per object whether to ask the user for photos.
-- BuilderAgent (builder.py)  builds the scene in a live Blender via the Blender MCP
-                             toolset + a Hyper3D Rodin text->mesh tool.
+- BuilderAgent (builder.py)  models the scene in a live Blender by writing bpy
+                             code over the Blender MCP toolset (no asset import).
 - VisionCritic (critic.py)   inspects the render and proposes concrete fixes.
 """
 from app.agents.builder import build_scene, builder_agent

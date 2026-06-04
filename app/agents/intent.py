@@ -54,7 +54,10 @@ For each object set:
   height', 'wheels ~1/4 of body length') so the builder gets the look right.
 - symmetry: symmetry to enforce, e.g. 'bilateral left-right', 'radial x4'; empty
   if none. (Lets the builder model one half and mirror it.)
-- material_hint: optional surface note (e.g. 'glossy red car paint').
+- material_hint: surface note (e.g. 'glossy red car paint', 'rough oak wood').
+  If the user names ANY color or finish (red, white, wooden, matte black,
+  glossy, brushed steel…), copy it into material_hint VERBATIM — it is an
+  explicit user requirement, never drop it. Keep the color in `description` too.
 - position_hint: where it sits relative to the scene/other objects (e.g.
   'centered on the ground', 'to the right of the car').
 

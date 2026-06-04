@@ -89,8 +89,8 @@ app/
   config.py             # settings from .env (incl. Blender host/port)
   models/scene.py       # BuildSpec / ObjectBrief / Clarification / BuildReport / Critique
   agents/               # router.py, info.py, intent.py (planner), builder.py, critic.py
-  rendering/blender_io.py # Blender MCP socket I/O: Rodin gen, render, .glb export
-  rendering/renderer.py # legacy Three.js renderer (reference only, not wired in)
+  rendering/blender_io.py # Blender MCP socket I/O: run bpy, render, .glb export
+  rendering/geometry_audit.py # deterministic scene measurement (no LLM)
   messaging/saperly.py  # Saperly REST client
   server/api.py         # FastAPI: webhook, viewer, dashboard, static
   pipeline.py           # the multi-agent build loop

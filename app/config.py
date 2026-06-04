@@ -40,7 +40,7 @@ class Settings:
     # those photos instead of the web. Set PHOTO_INTAKE=0 to disable (tests/smoke).
     photo_intake: bool = os.getenv("PHOTO_INTAKE", "1").lower() not in ("0", "false", "no")
 
-    # Live Blender with the BlenderMCP socket addon (text->3D via Hyper3D Rodin).
+    # Live Blender with the BlenderMCP socket addon (builder writes bpy over MCP).
     blender_host: str = os.getenv("BLENDER_HOST", "127.0.0.1")
     blender_port: int = int(os.getenv("BLENDER_PORT", "9876"))
     # Command the BuilderAgent spawns as its MCP toolset (talks to the addon).

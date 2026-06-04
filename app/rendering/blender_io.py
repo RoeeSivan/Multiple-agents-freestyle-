@@ -87,14 +87,6 @@ def get_scene_info() -> dict:
     return _send("get_scene_info")
 
 
-def hyper3d_status() -> dict:
-    return _send("get_hyper3d_status")
-
-
-def polyhaven_status() -> dict:
-    return _send("get_polyhaven_status")
-
-
 _CLEAR_CODE = """
 import bpy
 for o in list(bpy.data.objects):
@@ -132,6 +124,10 @@ HERO_DIRECTION: tuple[float, float, float] = (1.0, -1.2, 0.7)
 # lights, ambient occlusion, soft shadows, and a sample count — then picks Eevee.
 # The lights are LIGHT objects (not MESH), so they don't affect bbox/audit/export.
 _QUALITY_SETUP = """
+    # Standard view transform so set materials render TRUE — AgX/Filmic (the Eevee
+    # default) desaturates strong colors, muddying a 'red' ball in the preview.
+    try: scene.view_settings.view_transform = 'Standard'
+    except Exception: pass
     if scene.world is None:
         scene.world = bpy.data.worlds.new("World")
     scene.world.use_nodes = True

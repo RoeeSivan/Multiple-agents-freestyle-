@@ -2,10 +2,10 @@
 
 Coordinates the agents in a programmatic hand-off (a PydanticAI multi-agent
 pattern): PlannerAgent turns the request into a typed BuildSpec -> BuilderAgent
-realizes it in a live Blender (Hyper3D Rodin meshes + PolyHaven) -> we render the
-viewport -> VisionCritic judges the image -> if not good enough, its feedback
-goes back to the BuilderAgent to refine the live scene. Repeats up to
-`max_iterations`.
+models it in a live Blender by writing bpy code -> we render multi-view PNGs ->
+VisionCritic + a deterministic geometry audit judge them -> if not good enough,
+the merged feedback goes back to the BuilderAgent to refine the live scene.
+Repeats up to `max_iterations`.
 
 There is one Blender with one scene, so the whole Blender interaction is
 serialized behind `_BUILD_LOCK`.
