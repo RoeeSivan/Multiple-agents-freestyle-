@@ -197,6 +197,11 @@ class ObjectAudit(BaseModel):
         default=1,
         description="islands grouped by bbox overlap; >1 means parts float apart",
     )
+    flat_islands: int = Field(
+        default=0,
+        description="islands that are flat/zero-thickness sheets (a plane used where "
+        "a solid was needed)",
+    )
     has_geometry: bool = True
 
 

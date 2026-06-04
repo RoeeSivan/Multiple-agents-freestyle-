@@ -51,6 +51,18 @@ def test_audit_flags_scatter(monkeypatch):
     assert any("floating apart" in p for p in a.problems)
 
 
+def test_audit_flags_flat_parts(monkeypatch):
+    # A chair whose seat/backrest are flat planes -> flat_islands > 0 is flagged.
+    _patch_measure(
+        monkeypatch,
+        [ObjectAudit(name="chair", dims_m=[0.5, 0.5, 0.9], longest_dim_m=0.9,
+                     scatter_groups=1, flat_islands=2, has_geometry=True)],
+    )
+    a = geometry_audit.audit_scene(_spec("chair", 0.9))
+    assert not a.ok
+    assert any("FLAT" in p and "chair" in p for p in a.problems)
+
+
 def test_audit_flags_missing(monkeypatch):
     _patch_measure(monkeypatch, [])  # nothing built
     a = geometry_audit.audit_scene(_spec("chair", 1.0))

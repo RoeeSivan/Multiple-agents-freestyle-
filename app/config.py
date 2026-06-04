@@ -28,7 +28,7 @@ class Settings:
     public_url: str = os.getenv("PUBLIC_URL", "").rstrip("/")
 
     # Build <-> critic refinement loop cap.
-    max_iterations: int = int(os.getenv("MAX_ITERATIONS", "3"))
+    max_iterations: int = int(os.getenv("MAX_ITERATIONS", "4"))
 
     # Web reference grounding: search real photos + dimensions to model toward
     # reality. Keyless (DuckDuckGo). Set WEB_REFERENCE=0 to disable (faster).

@@ -65,6 +65,7 @@ for o in bpy.data.objects:
     bm = bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
     comps = _components(bm)
     boxes = []
+    flat_islands = 0
     for vs in comps:
         cmn = [1e18, 1e18, 1e18]; cmx = [-1e18, -1e18, -1e18]
         for v in vs:
@@ -72,6 +73,11 @@ for o in bpy.data.objects:
             for i in range(3):
                 cmn[i] = min(cmn[i], w[i]); cmx[i] = max(cmx[i], w[i])
         boxes.append((cmn, cmx))
+        idims = [cmx[i] - cmn[i] for i in range(3)]
+        # A real part has thickness in every axis. A flat sheet (plane used where a
+        # solid was needed) has one near-zero dim while the others are substantial.
+        if min(idims) < 0.003 and max(idims) > 0.03:
+            flat_islands += 1
     bm.free()
 
     # Merge islands whose bboxes overlap (tolerance scaled to object size).
@@ -94,7 +100,7 @@ for o in bpy.data.objects:
     out.append({"name": o.name, "dims_m": [round(d, 4) for d in dims],
                 "longest_dim_m": round(max(dims), 4), "lowest_z_m": round(mn[2], 4),
                 "island_count": m, "scatter_groups": scatter_groups,
-                "has_geometry": True})
+                "flat_islands": flat_islands, "has_geometry": True})
 
 print("@@AUDIT_START@@" + json.dumps(out) + "@@AUDIT_END@@")
 """
@@ -123,8 +129,30 @@ def audit_scene(spec: BuildSpec, size_targets: dict[str, float] | None = None) -
     problems: list[str] = []
     size_targets = size_targets or {}
 
+    # Stray loose parts: more meshes than planned objects means the builder left
+    # unjoined parts floating (a 'leg'/'seat'/'cushion'/'Cylinder' on its own).
+    planned = {b.name for b in spec.objects}
+    extras = [o.name for o in objects
+              if not any(o.name == n or o.name.startswith(n + ".") for n in planned)]
+    if extras and len(objects) > len(spec.objects):
+        problems.append(
+            f"the scene has {len(extras)} loose, unjoined part(s) ({', '.join(extras)}) "
+            f"— each is likely a floating piece; move it onto its object and join_objs "
+            f"it in, so only the planned objects ({', '.join(sorted(planned))}) remain."
+        )
+
     for brief in spec.objects:
         target = size_targets.get(brief.name, brief.approx_size_m)
+        # Duplicate copies left by a rebuild (plastic_chair + plastic_chair.001) —
+        # the builder must collapse them to one or they overlap in the export.
+        dupes = [o for o in objects
+                 if o.name == brief.name or o.name.startswith(brief.name + ".")]
+        if len(dupes) > 1:
+            problems.append(
+                f"there are {len(dupes)} copies of '{brief.name}' "
+                f"({', '.join(o.name for o in dupes)}) — call clear_named('{brief.name}') "
+                f"and rebuild a SINGLE one."
+            )
         match = by_name.get(brief.name)
         # Builders don't always name the object exactly; fall back to a single
         # built object when the plan has a single object too.
@@ -144,6 +172,12 @@ def audit_scene(spec: BuildSpec, size_targets: dict[str, float] | None = None) -
                 f"object '{match.name}' has {match.scatter_groups} parts floating "
                 f"apart (not connected) — move/overlap them so all parts touch and "
                 f"join into one solid object."
+            )
+        if match.flat_islands > 0:
+            problems.append(
+                f"object '{match.name}' has {match.flat_islands} FLAT/zero-thickness "
+                f"part(s) (a plane was used where a solid was needed) — rebuild those "
+                f"parts as solid boxes/cylinders with real depth in all 3 axes."
             )
         if target > 0 and match.longest_dim_m > 0:
             ratio = match.longest_dim_m / target
