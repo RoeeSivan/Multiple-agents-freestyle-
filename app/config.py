@@ -30,6 +30,11 @@ class Settings:
     # Build <-> critic refinement loop cap.
     max_iterations: int = int(os.getenv("MAX_ITERATIONS", "3"))
 
+    # Web reference grounding: search real photos + dimensions to model toward
+    # reality. Keyless (DuckDuckGo). Set WEB_REFERENCE=0 to disable (faster).
+    web_reference: bool = os.getenv("WEB_REFERENCE", "1").lower() not in ("0", "false", "no")
+    reference_images: int = int(os.getenv("REFERENCE_IMAGES", "3"))  # max photos per object
+
     # Live Blender with the BlenderMCP socket addon (text->3D via Hyper3D Rodin).
     blender_host: str = os.getenv("BLENDER_HOST", "127.0.0.1")
     blender_port: int = int(os.getenv("BLENDER_PORT", "9876"))

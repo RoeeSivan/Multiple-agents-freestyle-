@@ -13,6 +13,7 @@ from app.agents.critic import critic_agent, critique_render
 from app.agents.info import assess as info_assess
 from app.agents.info import info_agent
 from app.agents.intent import build_spec, intent_agent, planner_agent
+from app.agents.reference import get_reference, reference_agent
 from app.agents.router import route_message, router_agent
 
 __all__ = [
@@ -27,4 +28,6 @@ __all__ = [
     "build_scene",
     "critic_agent",
     "critique_render",
+    "reference_agent",
+    "get_reference",
 ]

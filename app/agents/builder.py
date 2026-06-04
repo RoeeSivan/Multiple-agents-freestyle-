@@ -10,11 +10,14 @@ and tells it how to reshape, looping until it reads right.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerStdio
 
+from app.agents.reference import image_content
 from app.config import settings
-from app.models import BuildReport, BuildSpec
+from app.models import BuildReport, BuildSpec, Reference
 
 # blender-mcp connects to the live Blender addon. We spawn it as the agent's
 # toolset: execute_blender_code (the modeling workhorse), get_scene_info,
@@ -60,6 +63,11 @@ honor the stated `proportions`, then JOIN them into one named object. When
 modifier rather than hand-placing both halves — it keeps the object symmetric.
 If `parts` is empty, compose the object yourself from the description.
 
+REFERENCE PHOTOS: you may be given real reference photos and facts of an object.
+Study them and model toward REALITY — match the real silhouette, proportions,
+part layout, and dominant color/material. The reference is ground truth; prefer
+it over your assumptions.
+
 COORDINATES: Blender is Z-UP, units are meters. The ground is z = 0. Seat every
 object so its lowest point sits on the ground. After building an object, VERIFY:
 print its world-space bounding box (min/max over obj.bound_box @ obj.matrix_world)
@@ -93,13 +101,18 @@ builder_agent = Agent(
 
 
 async def build_scene(
-    spec: BuildSpec, feedback: str | None = None, is_edit: bool = False
+    spec: BuildSpec,
+    feedback: str | None = None,
+    is_edit: bool = False,
+    references: dict[str, Reference] | None = None,
 ) -> BuildReport:
     """Model, edit, or refine the live Blender scene from the plan.
 
     - feedback set -> refine the existing scene per the critic.
     - is_edit True -> apply the updated plan to the existing scene.
     - otherwise   -> model fresh (the pipeline has already cleared the scene).
+    - references   -> real web photos/facts per object name, fed in to ground the
+      build (only on fresh build / edit — not on a pure refine pass).
     """
     plan_json = spec.model_dump_json(indent=2)
     if feedback:
@@ -119,6 +132,20 @@ async def build_scene(
             f"so build each object from scratch:\n{plan_json}"
         )
 
+    # On a fresh build / edit, attach real reference photos + facts as grounding.
+    content: list = [prompt]
+    if references and not feedback:
+        for name, ref in references.items():
+            if ref is None or not ref.images:
+                continue
+            note = f"Real reference for '{name}': {ref.facts}".strip()
+            if ref.real_dims_m:
+                note += f" Real longest dimension ~{ref.real_dims_m} m."
+            content.append(note)
+            for p in ref.images:
+                if Path(p).exists():
+                    content.append(image_content(p))
+
     async with builder_agent:
-        result = await builder_agent.run(prompt)
+        result = await builder_agent.run(content if len(content) > 1 else prompt)
     return result.output

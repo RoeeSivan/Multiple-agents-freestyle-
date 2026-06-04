@@ -8,6 +8,7 @@ from app.models.scene import (
     ObjectAudit,
     ObjectBrief,
     Part,
+    Reference,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "Critique",
     "ObjectAudit",
     "GeometryAudit",
+    "Reference",
 ]

@@ -125,6 +125,32 @@ class Critique(BaseModel):
     )
 
 
+class Reference(BaseModel):
+    """Real-world grounding for one object, gathered from the web.
+
+    The ReferenceAgent finds actual product photos + real dimensions/facts so the
+    builder models toward reality (not imagination) and the critic compares the
+    render to ground truth. `real_dims_m` also feeds the geometry audit's size
+    check. Everything defaults empty so a failed/disabled lookup degrades cleanly.
+    """
+
+    object_name: str = ""
+    image_urls: list[str] = Field(
+        default_factory=list, description="full-size reference image URLs the agent chose"
+    )
+    real_dims_m: float = Field(
+        default=0.0,
+        description="real-world LONGEST dimension in meters (convert from cm/inches); "
+        "0 if unknown",
+    )
+    facts: str = Field(
+        default="", description="distinctive real colors/materials/features"
+    )
+    sources: list[str] = Field(default_factory=list, description="source page URLs")
+    # Filled in after the agent runs (local paths of downloaded images); not the agent's job.
+    images: list[str] = Field(default_factory=list)
+
+
 class ObjectAudit(BaseModel):
     """Deterministic measurements of one built object (no LLM)."""
 

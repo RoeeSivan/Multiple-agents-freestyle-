@@ -14,8 +14,9 @@ from pathlib import Path
 
 from pydantic_ai import Agent, BinaryContent
 
+from app.agents.reference import image_content
 from app.config import settings
-from app.models import BuildSpec, Critique
+from app.models import BuildSpec, Critique, Reference
 
 SYSTEM_PROMPT = """\
 You are a 3D art director reviewing an automated builder that MODELS each object
@@ -40,6 +41,9 @@ depiction of the request. Flag only concrete problems the builder can reshape:
 - clearly wrong dominant color/material vs. the request
 - the shot is poorly framed (cut off, too far) or too dark
 
+If a REAL reference photo of an object is provided, compare the model to it and
+flag clear deviations in silhouette, proportion, part layout, or dominant color.
+
 BE DECISIVE AND CONVERGE. If the model clearly reads as what was asked from all
 angles, set matches_request=true and leave patch_instructions empty. Only request
 another pass for a concrete, fixable flaw. When you do, write SPECIFIC
@@ -59,11 +63,15 @@ critic_agent = Agent(
 
 
 async def critique_render(
-    request: str, spec: BuildSpec, views: list[tuple[str, str]]
+    request: str,
+    spec: BuildSpec,
+    views: list[tuple[str, str]],
+    references: dict[str, Reference] | None = None,
 ) -> Critique:
     """Show the critic the multi-angle renders + context, get a structured verdict.
 
     `views` is a list of (label, png_path) — e.g. [("front", ...), ("side", ...)].
+    `references` (optional) supplies real photos to compare the render against.
     """
     content: list = [
         f"Original request: {request}\n\n"
@@ -73,5 +81,18 @@ async def critique_render(
     for label, path in views:
         content.append(f"{label} view:")
         content.append(BinaryContent(data=Path(path).read_bytes(), media_type="image/png"))
+
+    if references:
+        for name, ref in references.items():
+            if ref is None or not ref.images:
+                continue
+            content.append(
+                f"Real reference photo of '{name}' — the model should resemble this "
+                f"(shape, proportions, color):"
+            )
+            for p in ref.images:
+                if Path(p).exists():
+                    content.append(image_content(p))
+
     result = await critic_agent.run(content)
     return result.output

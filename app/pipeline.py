@@ -19,8 +19,9 @@ from pathlib import Path
 from app.agents.builder import build_scene
 from app.agents.critic import critique_render
 from app.agents.intent import build_spec
+from app.agents.reference import get_reference
 from app.config import OUT_DIR, settings
-from app.models import BuildReport, BuildSpec, Critique, GeometryAudit
+from app.models import BuildReport, BuildSpec, Critique, GeometryAudit, Reference
 from app.rendering import blender_io
 from app.rendering.geometry_audit import audit_scene
 
@@ -37,6 +38,7 @@ class BuildResult:
     iterations: int
     critique: Critique | None  # final critic verdict (None if loop disabled)
     audit: GeometryAudit | None = None  # final deterministic geometry audit
+    references: dict[str, Reference] | None = None  # web grounding per object name
 
 
 def _merge_feedback(audit: GeometryAudit, critique: Critique | None) -> str:
@@ -72,20 +74,29 @@ async def build_3d(
     png_path = out_dir / f"{basename}.png"
     glb_path = out_dir / f"{basename}.glb"
 
+    # Ground each object on real web photos + dimensions (best-effort; None on
+    # failure/disabled). real_dims_m becomes the audit's size target. Also Blender-
+    # free, so do it before grabbing the lock; lookups run concurrently.
+    references: dict[str, Reference] = {}
+    if settings.web_reference:
+        results = await asyncio.gather(*[get_reference(b, out_dir) for b in spec.objects])
+        references = {b.name: r for b, r in zip(spec.objects, results)}
+    size_targets = {n: r.real_dims_m for n, r in references.items() if r and r.real_dims_m > 0}
+
     async with _BUILD_LOCK:
         if not is_edit:
             await asyncio.to_thread(blender_io.clear_scene)
 
-        report = await build_scene(spec, is_edit=is_edit)
+        report = await build_scene(spec, is_edit=is_edit, references=references)
         iterations = 1
         critique: Critique | None = None
         audit: GeometryAudit | None = None
 
         if refine:
-            audit = await asyncio.to_thread(audit_scene, spec)
+            audit = await asyncio.to_thread(audit_scene, spec, size_targets)
             views = await asyncio.to_thread(blender_io.render_views, out_dir)
             while iterations < max_iter:
-                critique = await critique_render(request, spec, views)
+                critique = await critique_render(request, spec, views, references)
                 # Converge only when BOTH the eye and the measurements agree.
                 if critique.matches_request and audit.ok:
                     break
@@ -93,7 +104,7 @@ async def build_3d(
                 if not feedback:
                     break
                 report = await build_scene(spec, feedback=feedback)
-                audit = await asyncio.to_thread(audit_scene, spec)
+                audit = await asyncio.to_thread(audit_scene, spec, size_targets)
                 views = await asyncio.to_thread(blender_io.render_views, out_dir)
                 iterations += 1
 
@@ -101,4 +112,4 @@ async def build_3d(
         await asyncio.to_thread(blender_io.render_png, png_path)
         await asyncio.to_thread(blender_io.export_glb, glb_path)
 
-    return BuildResult(spec, report, png_path, glb_path, iterations, critique, audit)
+    return BuildResult(spec, report, png_path, glb_path, iterations, critique, audit, references)
