@@ -28,7 +28,7 @@ async def run(prompt: str) -> int:
 
     t0 = time.time()
     res = await build_3d(
-        prompt, out_dir=OUT_DIR / "smoke", basename="smoke", refine=False
+        prompt, out_dir=OUT_DIR / "smoke", basename="smoke", refine=False, turntable=False
     )
 
     png_kb = res.png.stat().st_size / 1024 if res.png.exists() else 0

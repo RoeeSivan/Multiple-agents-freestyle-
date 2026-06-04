@@ -109,7 +109,8 @@ async def handle_inbound(sms: InboundSMS) -> None:
         session.status = "done"
 
         passes = "pass" if result.iterations == 1 else "passes"
-        msg = f"✅ Done in {result.iterations} {passes}. View + download .glb: {_viewer_link(session.sid)}"
+        spin = "Spin it 360° + grab" if result.mp4 else "View + download"
+        msg = f"✅ Done in {result.iterations} {passes}. {spin} the .glb: {_viewer_link(session.sid)}"
         session.add_turn("agent", msg)
         await _safe_send(sms.from_number, msg)
 
@@ -128,6 +129,7 @@ async def sms_incoming(req: Request, bg: BackgroundTasks):
 
 def _session_json(s: Session) -> dict:
     v = s.render_version
+    has_mp4 = v and (OUT_DIR / s.sid / "model.mp4").exists()
     return {
         "sid": s.sid,
         "phone": s.phone,
@@ -137,6 +139,7 @@ def _session_json(s: Session) -> dict:
         "turns": [{"role": t.role, "text": t.text, "ts": t.ts} for t in s.turns],
         "png": f"/out/{s.sid}/model.png?v={v}" if v else None,
         "glb": f"/out/{s.sid}/model.glb?v={v}" if v else None,
+        "mp4": f"/out/{s.sid}/model.mp4?v={v}" if has_mp4 else None,
         "updated_at": s.updated_at,
     }
 

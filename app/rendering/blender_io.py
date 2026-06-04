@@ -127,15 +127,53 @@ VIEW_SET: tuple[tuple[str, tuple[float, float, float]], ...] = (
 HERO_DIRECTION: tuple[float, float, float] = (1.0, -1.2, 0.7)
 
 
-def _render_shots(shots: list[tuple[str, tuple[float, float, float]]]) -> None:
+# Studio lighting + render-quality setup shared by every render path (shots +
+# turntable). Adds a 3-point sun rig (key/fill/rim) only when the scene has no
+# lights, ambient occlusion, soft shadows, and a sample count — then picks Eevee.
+# The lights are LIGHT objects (not MESH), so they don't affect bbox/audit/export.
+_QUALITY_SETUP = """
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("World")
+    scene.world.use_nodes = True
+    bg = scene.world.node_tree.nodes.get('Background')
+    if bg is not None and bg.inputs[1].default_value < 0.4:
+        bg.inputs[1].default_value = 1.0
+    if not any(o.type == 'LIGHT' for o in bpy.data.objects):
+        for nm, en, rot in (("Key", 4.0, (50, 0, 30)),
+                            ("Fill", 1.6, (62, 0, -55)),
+                            ("Rim", 3.0, (-35, 0, 190))):
+            L = bpy.data.objects.new(nm, bpy.data.lights.new(nm, 'SUN'))
+            L.data.energy = en
+            try: L.data.angle = math.radians(4)  # softer shadows
+            except Exception: pass
+            L.rotation_euler = tuple(math.radians(a) for a in rot)
+            scene.collection.objects.link(L)
+    for eng in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE'):
+        try:
+            scene.render.engine = eng
+            break
+        except Exception:
+            pass
+    try: scene.eevee.use_gtao = True
+    except Exception: pass
+    try: scene.eevee.use_soft_shadows = True
+    except Exception: pass
+    try: scene.eevee.taa_render_samples = SAMPLES
+    except Exception: pass
+    scene.render.resolution_x = 1024
+    scene.render.resolution_y = 768
+"""
+
+
+def _render_shots(shots: list[tuple[str, tuple[float, float, float]]], samples: int = 32) -> None:
     """Render one framed PNG per (filepath, direction) shot.
 
     A plain viewport screenshot captures editor chrome and the user's arbitrary
     angle. Instead we compute the scene bounding box ONCE, drop it to the ground
     and center it in X/Y (exactly like export_glb, so the critic judges the same
-    grounded object the .glb will contain), guarantee lighting, then for each
-    shot place a camera along `direction` at a fitted distance and Eevee-render.
-    The scene is restored afterwards so refine passes are unaffected.
+    grounded object the .glb will contain), set up studio lighting + quality, then
+    for each shot place a camera along `direction` at a fitted distance and
+    Eevee-render. The scene is restored afterwards so refine passes are unaffected.
     """
     shots_lit = repr([(fp, list(d)) for (fp, d) in shots])
     out = run_code(
@@ -171,28 +209,7 @@ else:
         scene.camera = cam
     fov = min(cam.data.angle, 1.2)
     dist = radius / math.sin(fov / 2.0) * 1.3
-
-    # Guarantee the scene isn't black even without a PolyHaven HDRI.
-    if scene.world is None:
-        scene.world = bpy.data.worlds.new("World")
-    scene.world.use_nodes = True
-    bg = scene.world.node_tree.nodes.get('Background')
-    if bg is not None and bg.inputs[1].default_value < 0.4:
-        bg.inputs[1].default_value = 1.0
-    if not any(o.type == 'LIGHT' for o in bpy.data.objects):
-        sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", 'SUN'))
-        sun.data.energy = 3.0
-        sun.rotation_euler = (math.radians(50), math.radians(10), math.radians(40))
-        scene.collection.objects.link(sun)
-
-    for eng in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE'):
-        try:
-            scene.render.engine = eng
-            break
-        except Exception:
-            pass
-    scene.render.resolution_x = 1024
-    scene.render.resolution_y = 768
+{_QUALITY_SETUP.replace("SAMPLES", str(int(samples)))}
     scene.render.image_settings.file_format = 'PNG'
 
     for fp, dvec in shots:
@@ -218,7 +235,7 @@ def render_png(path) -> str:
     from pathlib import Path
 
     p = str(Path(path).resolve())
-    _render_shots([(p, HERO_DIRECTION)])
+    _render_shots([(p, HERO_DIRECTION)], samples=64)  # hero shot for the SMS link
     return p
 
 
@@ -238,8 +255,112 @@ def render_views(out_dir, basename: str = "view", views=VIEW_SET) -> list[tuple[
         p = str((out / f"{basename}_{label}.png").resolve())
         shots.append((p, direction))
         labelled.append((label, p))
-    _render_shots(shots)
+    _render_shots(shots, samples=24)  # lighter samples — 5 frames, just for the critic
     return labelled
+
+
+def render_turntable(path, frames: int = 30, samples: int = 14, fps: int = 15) -> str | None:
+    """Render an orbiting turntable MP4 of the scene — the SMS "wow" preview.
+
+    Blender renders a 360° orbit as a PNG frame SEQUENCE (this Blender build has no
+    FFMPEG muxer), then the host's ffmpeg encodes the frames into an .mp4. Uses a
+    dedicated camera + Track-To target so the live camera/scene is left clean.
+    Returns the .mp4 path, or None if ffmpeg isn't available (best-effort wow).
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    ffmpeg = shutil.which("ffmpeg")
+    p = Path(path).with_suffix(".mp4")
+    frames_dir = p.parent / f"{p.stem}_frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    prefix = str((frames_dir / "tt_").resolve()).replace("\\", "/")
+
+    out = run_code(
+        f"""
+import bpy, math, mathutils
+scene = bpy.context.scene
+meshes = [o for o in bpy.data.objects if o.type == 'MESH']
+if not meshes:
+    print("NO_MESH")
+else:
+    mins = [1e18, 1e18, 1e18]
+    maxs = [-1e18, -1e18, -1e18]
+    for o in meshes:
+        for c in o.bound_box:
+            w = o.matrix_world @ mathutils.Vector(c)
+            for i in range(3):
+                mins[i] = min(mins[i], w[i]); maxs[i] = max(maxs[i], w[i])
+    off = mathutils.Vector((-(mins[0]+maxs[0])/2.0, -(mins[1]+maxs[1])/2.0, -mins[2]))
+    tops = [o for o in bpy.data.objects if o.parent is None]
+    for o in tops:
+        o.location = o.location + off
+    bpy.context.view_layer.update()
+
+    center = mathutils.Vector((0.0, 0.0, (maxs[2]-mins[2]) / 2.0))
+    radius = max((mathutils.Vector(maxs) - mathutils.Vector(mins)).length / 2.0, 0.5)
+
+    prev_cam = scene.camera
+    prev_start, prev_end = scene.frame_start, scene.frame_end
+    target_empty = bpy.data.objects.new("TT_Target", None)
+    target_empty.location = center
+    scene.collection.objects.link(target_empty)
+    ttcam = bpy.data.objects.new("TT_Cam", bpy.data.cameras.new("TT_Cam"))
+    scene.collection.objects.link(ttcam)
+    scene.camera = ttcam
+    con = ttcam.constraints.new('TRACK_TO')
+    con.target = target_empty
+    con.track_axis = 'TRACK_NEGATIVE_Z'
+    con.up_axis = 'UP_Y'
+    fov = min(ttcam.data.angle, 1.2)
+    dist = radius / math.sin(fov / 2.0) * 1.35
+
+    n = {int(frames)}
+    for f in range(1, n + 1):
+        ang = 2.0 * math.pi * (f - 1) / n
+        ttcam.location = (center.x + dist * math.cos(ang),
+                          center.y + dist * math.sin(ang),
+                          center.z + radius * 0.55)
+        ttcam.keyframe_insert("location", frame=f)
+{_QUALITY_SETUP.replace("SAMPLES", str(int(samples)))}
+    scene.frame_start = 1
+    scene.frame_end = n
+    scene.render.image_settings.file_format = 'PNG'
+    scene.render.filepath = {prefix!r}
+    bpy.ops.render.render(animation=True)
+
+    # Clean up so the live scene is untouched for further edits.
+    bpy.data.objects.remove(ttcam, do_unlink=True)
+    bpy.data.objects.remove(target_empty, do_unlink=True)
+    scene.camera = prev_cam
+    scene.frame_start, scene.frame_end = prev_start, prev_end
+    for o in tops:
+        o.location = o.location - off
+    bpy.context.view_layer.update()
+    print("TT_FRAMES_OK")
+""",
+        timeout=420.0,
+    )
+    if "TT_FRAMES_OK" not in out:
+        raise BlenderError(f"turntable frame render did not confirm (output: {out!r})")
+
+    if not ffmpeg:
+        return None  # frames rendered but no encoder; skip the mp4 gracefully
+
+    target = str(p.resolve())
+    cmd = [
+        ffmpeg, "-y", "-framerate", str(int(fps)), "-start_number", "1",
+        "-i", f"{prefix}%04d.png",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", target,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not p.exists():
+        raise BlenderError(f"ffmpeg failed to encode turntable: {proc.stderr[-400:]}")
+
+    shutil.rmtree(frames_dir, ignore_errors=True)  # keep only the mp4
+    return target
 
 
 def export_glb(path) -> str:

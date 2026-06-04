@@ -13,6 +13,7 @@ serialized behind `_BUILD_LOCK`.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from app.config import OUT_DIR, settings
 from app.models import BuildReport, BuildSpec, Critique, GeometryAudit, Reference
 from app.rendering import blender_io
 from app.rendering.geometry_audit import audit_scene
+
+log = logging.getLogger("pipeline")
 
 # One Blender, one live scene -> only one build may touch it at a time.
 _BUILD_LOCK = asyncio.Lock()
@@ -39,6 +42,7 @@ class BuildResult:
     critique: Critique | None  # final critic verdict (None if loop disabled)
     audit: GeometryAudit | None = None  # final deterministic geometry audit
     references: dict[str, Reference] | None = None  # web grounding per object name
+    mp4: Path | None = None  # orbiting turntable preview (None if disabled/no ffmpeg)
 
 
 def _merge_feedback(audit: GeometryAudit, critique: Critique | None) -> str:
@@ -61,6 +65,7 @@ async def build_3d(
     basename: str = "model",
     max_iterations: int | None = None,
     refine: bool = True,
+    turntable: bool = True,
 ) -> BuildResult:
     """Build (or edit) a 3D scene from `request`, refining via the critic loop."""
     max_iter = max_iterations if max_iterations is not None else settings.max_iterations
@@ -112,4 +117,18 @@ async def build_3d(
         await asyncio.to_thread(blender_io.render_png, png_path)
         await asyncio.to_thread(blender_io.export_glb, glb_path)
 
-    return BuildResult(spec, report, png_path, glb_path, iterations, critique, audit, references)
+        # Orbiting turntable preview (best-effort — never fail the build over it).
+        mp4_path: Path | None = None
+        if turntable:
+            try:
+                res = await asyncio.to_thread(
+                    blender_io.render_turntable, out_dir / f"{basename}.mp4"
+                )
+                mp4_path = Path(res) if res else None
+            except Exception:  # noqa: BLE001
+                log.warning("turntable render failed", exc_info=True)
+
+    return BuildResult(
+        spec, report, png_path, glb_path, iterations, critique,
+        audit=audit, references=references, mp4=mp4_path,
+    )
