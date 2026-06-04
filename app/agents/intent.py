@@ -31,6 +31,17 @@ For each object set:
   and proportions, plus color/style. Describe only this object — no scene layout.
 - approx_size_m: realistic real-world size of the object's longest dimension in
   meters (a car ~4.5, a chair ~1, a mug ~0.1, a tree ~5).
+- parts: decompose the object into its main sub-components — the structural plan
+  the builder follows. For EACH part give: name, shape_hint (the primitive/form
+  to start from, e.g. 'thin tapered cylinder', 'rounded box'), approx_dims_m (a
+  rough [x, y, z] in meters consistent with approx_size_m), and anchor (where/how
+  it attaches, e.g. 'on top of the seat', '4x mirrored under the seat corners').
+  Keep parts to the few that matter (a chair: seat, backrest, 4 legs). Use anchors
+  so parts CONNECT. Leave parts empty only for a truly simple single-blob object.
+- proportions: the key real-world ratios (e.g. 'seat 45cm high, back ~2x seat
+  height', 'wheels ~1/4 of body length') so the builder gets the look right.
+- symmetry: symmetry to enforce, e.g. 'bilateral left-right', 'radial x4'; empty
+  if none. (Lets the builder model one half and mirror it.)
 - material_hint: optional surface note (e.g. 'glossy red car paint').
 - position_hint: where it sits relative to the scene/other objects (e.g.
   'centered on the ground', 'to the right of the car').

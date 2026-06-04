@@ -7,10 +7,12 @@ from app.models.scene import (
     GeometryAudit,
     ObjectAudit,
     ObjectBrief,
+    Part,
 )
 
 __all__ = [
     "ObjectBrief",
+    "Part",
     "BuildSpec",
     "Clarification",
     "BuildReport",

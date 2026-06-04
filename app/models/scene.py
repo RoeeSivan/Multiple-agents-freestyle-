@@ -14,6 +14,30 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class Part(BaseModel):
+    """One sub-component of an object: rough size + how it attaches.
+
+    Gives the builder a stable structural contract so it doesn't re-guess an
+    object's whole composition on every refine pass.
+    """
+
+    name: str = Field(description="short label, e.g. 'seat', 'leg', 'backrest'")
+    shape_hint: str = Field(
+        default="",
+        description="primitive/form to start from, e.g. 'thin tapered cylinder', "
+        "'rounded box', 'sphere'",
+    )
+    approx_dims_m: list[float] = Field(
+        default_factory=list,
+        description="rough [x, y, z] size in meters; leave [] if unsure",
+    )
+    anchor: str = Field(
+        default="",
+        description="how/where this part attaches to the rest, e.g. 'on top of the "
+        "seat', '4x mirrored under the seat corners', 'centered, base on ground'",
+    )
+
+
 class ObjectBrief(BaseModel):
     """One object to generate, described richly enough for a text->3D model."""
 
@@ -27,6 +51,21 @@ class ObjectBrief(BaseModel):
         default=1.0,
         description="target size of the object's LONGEST dimension in meters. "
         "Generated meshes are normalized, so this drives rescaling.",
+    )
+    parts: list[Part] = Field(
+        default_factory=list,
+        description="structural breakdown into sub-components with rough dims and "
+        "how they attach; empty means the builder composes it freely",
+    )
+    proportions: str = Field(
+        default="",
+        description="key real-world proportions/ratios, e.g. 'seat at 45cm, back "
+        "twice the seat height', 'wheels ~1/4 of body length'",
+    )
+    symmetry: str = Field(
+        default="",
+        description="symmetry to enforce, e.g. 'bilateral left-right', 'radial x4'; "
+        "empty if none",
     )
     material_hint: str = Field(
         default="",

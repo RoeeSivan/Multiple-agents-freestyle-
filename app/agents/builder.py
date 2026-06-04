@@ -52,6 +52,14 @@ MODEL WELL — go far beyond blocky axis-aligned primitives:
 - Give every object a Principled BSDF material with a fitting base color and
   sensible roughness/metallic.
 
+FOLLOW THE PLAN'S STRUCTURE: each object may list `parts` (name, shape_hint,
+approx_dims_m, anchor), `proportions`, and `symmetry`. When parts are given, build
+exactly those parts at the given dims, place each per its `anchor` so they TOUCH,
+honor the stated `proportions`, then JOIN them into one named object. When
+`symmetry` is set (e.g. 'bilateral left-right'), model one side and add a MIRROR
+modifier rather than hand-placing both halves — it keeps the object symmetric.
+If `parts` is empty, compose the object yourself from the description.
+
 COORDINATES: Blender is Z-UP, units are meters. The ground is z = 0. Seat every
 object so its lowest point sits on the ground. After building an object, VERIFY:
 print its world-space bounding box (min/max over obj.bound_box @ obj.matrix_world)

@@ -1,6 +1,6 @@
 """Offline schema/parse tests — no network, Blender, or API needed."""
 from app.messaging import InboundSMS
-from app.models import BuildSpec, Clarification, Critique, ObjectBrief
+from app.models import BuildSpec, Clarification, Critique, ObjectBrief, Part
 from app.state import SessionStore
 
 
@@ -12,6 +12,29 @@ def test_buildspec_defaults():
     assert o.approx_size_m == 1.0
     assert o.material_hint == ""
     assert o.position_hint == ""
+    # WS2 structural fields default empty -> backward compatible (free-form build).
+    assert o.parts == []
+    assert o.proportions == "" and o.symmetry == ""
+
+
+def test_object_with_parts():
+    o = ObjectBrief(
+        name="chair",
+        description="a wooden chair",
+        approx_size_m=1.0,
+        parts=[
+            Part(name="seat", shape_hint="rounded box", approx_dims_m=[0.45, 0.45, 0.05],
+                 anchor="0.45 m up"),
+            Part(name="leg", shape_hint="thin cylinder", approx_dims_m=[0.05, 0.05, 0.45],
+                 anchor="4x mirrored under the seat corners"),
+        ],
+        symmetry="bilateral left-right",
+    )
+    assert len(o.parts) == 2
+    assert o.parts[0].name == "seat"
+    assert o.parts[1].approx_dims_m == [0.05, 0.05, 0.45]
+    # Round-trips through JSON (the planner<->builder contract).
+    assert ObjectBrief.model_validate_json(o.model_dump_json()) == o
 
 
 def test_clarification_and_critique_defaults():
