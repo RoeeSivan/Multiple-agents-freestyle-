@@ -175,7 +175,22 @@ MODEL WELL beyond blocky primitives: rotate/scale parts, use sphere/cone for
 rounded forms, and smooth_bevel(obj, subsurf=1) ONLY for genuinely smooth/organic
 shapes (subsurf is capped at 1 — never stack subdivisions; it explodes the mesh).
 For hard-surface objects (chairs, tables, boxes) a light bevel with subsurf=0 is
-enough. Give every object a fitting Principled BSDF material via set_material.
+enough.
+
+MATERIAL & COLOR (the critic fails builds that stay default grey/white — treat
+color as REQUIRED): give every object a set_material() whose color matches the
+object's `material_hint` and the reference facts. TRANSLATE the named material into
+a concrete (r,g,b) in 0..1 and set metallic for metals. Common mappings:
+- light oak / natural wood -> (0.62, 0.46, 0.28), roughness 0.6, metallic 0
+- dark/walnut wood -> (0.30, 0.18, 0.09); weathered wood -> (0.55, 0.42, 0.30)
+- black metal / iron -> (0.04, 0.04, 0.05), roughness 0.4, metallic 1.0
+- brushed aluminum / steel -> (0.78, 0.79, 0.82), roughness 0.35, metallic 1.0
+- ceramic glaze -> the stated glaze color (e.g. pale blue (0.70, 0.82, 0.90)),
+  roughness 0.2, metallic 0; white ceramic -> (0.92, 0.92, 0.92)
+- glossy car paint -> the stated hue, roughness 0.2
+When an object has parts of DIFFERENT materials (e.g. a bench's wood slats + black
+metal frame, a laptop's aluminum body + black screen), set_material on each part
+BEFORE joining so each keeps its own color. Never leave an object the default grey.
 
 FOLLOW THE PLAN'S STRUCTURE: each object may list `parts` (name, shape_hint,
 approx_dims_m, anchor), `proportions`, and `symmetry`. Build exactly those parts at
@@ -235,8 +250,17 @@ async def build_scene(
     plan_json = spec.model_dump_json(indent=2)
     if feedback:
         prompt = (
-            "REFINE the existing live scene. A vision critic flagged these issues; "
-            f"reshape the geometry to fix them with the smallest changes:\n{feedback}\n\n"
+            "REFINE the existing live scene. A vision critic + a geometry audit "
+            f"flagged these issues:\n{feedback}\n\n"
+            "Fix them by REBUILDING EACH AFFECTED OBJECT AS A WHOLE — never bolt a "
+            "new loose part onto the scene. For every object that needs a change: "
+            "call clear_named('<plan_name>') to remove it AND any leftover "
+            "parts/duplicates, then rebuild ALL of its parts with the helpers so they "
+            "OVERLAP at their joints, and FINISH with a single "
+            "join_objs('<plan_name>', [...]) so the object is ONE connected mesh. "
+            "Afterwards the scene must contain ONLY the planned objects — no loose "
+            "primitive (e.g. 'Cylinder', 'Sphere', 'handle', 'lid') left behind. "
+            "Leave objects that need no change untouched.\n\n"
             f"For reference, the build plan was:\n{plan_json}"
         )
     elif is_edit:

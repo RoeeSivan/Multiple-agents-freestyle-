@@ -13,8 +13,9 @@ serialized behind `_BUILD_LOCK`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.agents.builder import build_scene
@@ -43,6 +44,7 @@ class BuildResult:
     audit: GeometryAudit | None = None  # final deterministic geometry audit
     references: dict[str, Reference] | None = None  # web grounding per object name
     mp4: Path | None = None  # orbiting turntable preview (None if disabled/no ffmpeg)
+    trace: list[dict] = field(default_factory=list)  # per-refine-pass audit+critic record
 
 
 def _merge_feedback(audit: GeometryAudit, critique: Critique | None) -> str:
@@ -109,12 +111,24 @@ async def build_3d(
         iterations = 1
         critique: Critique | None = None
         audit: GeometryAudit | None = None
+        trace: list[dict] = []  # one entry per refine pass — the learning record
 
         if refine:
             audit = await asyncio.to_thread(audit_scene, spec, size_targets)
             views = await asyncio.to_thread(blender_io.render_views, out_dir)
             while iterations < max_iter:
                 critique = await critique_render(request, spec, views, references)
+                trace.append({
+                    "iter": iterations,
+                    "audit_ok": audit.ok,
+                    "audit_problems": list(audit.problems),
+                    "critic_match": critique.matches_request,
+                    "critic_notes": critique.patch_instructions,
+                })
+                log.info(
+                    "refine pass %d: audit_ok=%s problems=%d critic_match=%s",
+                    iterations, audit.ok, len(audit.problems), critique.matches_request,
+                )
                 # Converge only when BOTH the eye and the measurements agree.
                 if critique.matches_request and audit.ok:
                     break
@@ -141,7 +155,15 @@ async def build_3d(
             except Exception:  # noqa: BLE001
                 log.warning("turntable render failed", exc_info=True)
 
+    # Persist the per-pass trace so a run can be inspected/learned from after the
+    # fact (also the data behind a future build-timeline UI).
+    if trace:
+        try:
+            (out_dir / "trace.json").write_text(json.dumps(trace, indent=2))
+        except Exception:  # noqa: BLE001 — never fail a build over a debug artifact
+            log.warning("could not write trace.json", exc_info=True)
+
     return BuildResult(
         spec, report, png_path, glb_path, iterations, critique,
-        audit=audit, references=references, mp4=mp4_path,
+        audit=audit, references=references, mp4=mp4_path, trace=trace,
     )

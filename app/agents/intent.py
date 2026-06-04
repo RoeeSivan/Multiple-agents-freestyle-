@@ -33,11 +33,23 @@ For each object set:
   meters (a car ~4.5, a chair ~1, a mug ~0.1, a tree ~5).
 - parts: decompose the object into its main sub-components — the structural plan
   the builder follows. For EACH part give: name, shape_hint (the primitive/form
-  to start from, e.g. 'thin tapered cylinder', 'rounded box'), approx_dims_m (a
-  rough [x, y, z] in meters consistent with approx_size_m), and anchor (where/how
-  it attaches, e.g. 'on top of the seat', '4x mirrored under the seat corners').
-  Keep parts to the few that matter (a chair: seat, backrest, 4 legs). Use anchors
-  so parts CONNECT. Leave parts empty only for a truly simple single-blob object.
+  to start from, e.g. 'thin tapered cylinder', 'rounded box'), approx_dims_m, and
+  anchor (where/how it attaches). Keep parts to the few that matter (a chair: seat,
+  backrest, 4 legs). Use anchors so parts CONNECT. Leave parts empty only for a
+  truly simple single-blob object.
+  - approx_dims_m is a rough [x, y, z] in meters where **z is the vertical (up)
+    axis**, consistent with approx_size_m. The dims MUST reflect the part's real
+    ORIENTATION in the world, not just its size: an UPRIGHT part (backrest, seat
+    back, door, screen, signboard, monitor panel) is TALL in z and THIN in depth —
+    e.g. a bench backrest is [1.8, 0.05, 0.4], NEVER [1.8, 0.4, 0.05]; a flat
+    horizontal SURFACE (seat, tabletop, shelf) is thin in z, e.g. [1.8, 0.5, 0.05].
+    Sanity-check: would these dims, placed as-is, stand up or lie flat the way the
+    real part does?
+  - anchor says where/how the part attaches so parts CONNECT, e.g. 'on top of the
+    seat', '4x mirrored under the seat corners'. For an UPRIGHT part, name the edge
+    its BASE sits on and that it stands vertically, e.g. 'stands vertically along
+    the rear edge of the seat, base overlapping the seat top' (optionally reclined
+    a few degrees) — so the builder raises it, not lays it flat.
 - proportions: the key real-world ratios (e.g. 'seat 45cm high, back ~2x seat
   height', 'wheels ~1/4 of body length') so the builder gets the look right.
 - symmetry: symmetry to enforce, e.g. 'bilateral left-right', 'radial x4'; empty
