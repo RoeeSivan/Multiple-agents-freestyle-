@@ -20,8 +20,9 @@ from app.agents.builder import build_scene
 from app.agents.critic import critique_render
 from app.agents.intent import build_spec
 from app.config import OUT_DIR, settings
-from app.models import BuildReport, BuildSpec, Critique
+from app.models import BuildReport, BuildSpec, Critique, GeometryAudit
 from app.rendering import blender_io
+from app.rendering.geometry_audit import audit_scene
 
 # One Blender, one live scene -> only one build may touch it at a time.
 _BUILD_LOCK = asyncio.Lock()
@@ -35,6 +36,20 @@ class BuildResult:
     glb: Path
     iterations: int
     critique: Critique | None  # final critic verdict (None if loop disabled)
+    audit: GeometryAudit | None = None  # final deterministic geometry audit
+
+
+def _merge_feedback(audit: GeometryAudit, critique: Critique | None) -> str:
+    """Combine deterministic audit problems + perceptual critic notes for the builder."""
+    parts: list[str] = []
+    if audit.problems:
+        parts.append(
+            "MEASURED geometry problems (fix these precisely):\n- "
+            + "\n- ".join(audit.problems)
+        )
+    if critique and critique.patch_instructions:
+        parts.append("VISUAL review notes:\n" + critique.patch_instructions)
+    return "\n\n".join(parts)
 
 
 async def build_3d(
@@ -62,20 +77,28 @@ async def build_3d(
             await asyncio.to_thread(blender_io.clear_scene)
 
         report = await build_scene(spec, is_edit=is_edit)
-        await asyncio.to_thread(blender_io.render_png, png_path)
         iterations = 1
         critique: Critique | None = None
+        audit: GeometryAudit | None = None
 
         if refine:
+            audit = await asyncio.to_thread(audit_scene, spec)
+            views = await asyncio.to_thread(blender_io.render_views, out_dir)
             while iterations < max_iter:
-                critique = await critique_render(request, spec, png_path)
-                if critique.matches_request:
+                critique = await critique_render(request, spec, views)
+                # Converge only when BOTH the eye and the measurements agree.
+                if critique.matches_request and audit.ok:
                     break
-                # Hand the critic's feedback back to the builder; re-render.
-                report = await build_scene(spec, feedback=critique.patch_instructions)
-                await asyncio.to_thread(blender_io.render_png, png_path)
+                feedback = _merge_feedback(audit, critique)
+                if not feedback:
+                    break
+                report = await build_scene(spec, feedback=feedback)
+                audit = await asyncio.to_thread(audit_scene, spec)
+                views = await asyncio.to_thread(blender_io.render_views, out_dir)
                 iterations += 1
 
+        # Hero shot for the SMS preview + the final game-ready export.
+        await asyncio.to_thread(blender_io.render_png, png_path)
         await asyncio.to_thread(blender_io.export_glb, glb_path)
 
-    return BuildResult(spec, report, png_path, glb_path, iterations, critique)
+    return BuildResult(spec, report, png_path, glb_path, iterations, critique, audit)

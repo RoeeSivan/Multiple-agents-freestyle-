@@ -4,7 +4,17 @@ from app.models.scene import (
     BuildSpec,
     Clarification,
     Critique,
+    GeometryAudit,
+    ObjectAudit,
     ObjectBrief,
 )
 
-__all__ = ["ObjectBrief", "BuildSpec", "Clarification", "BuildReport", "Critique"]
+__all__ = [
+    "ObjectBrief",
+    "BuildSpec",
+    "Clarification",
+    "BuildReport",
+    "Critique",
+    "ObjectAudit",
+    "GeometryAudit",
+]

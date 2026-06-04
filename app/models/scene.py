@@ -84,3 +84,31 @@ class Critique(BaseModel):
         description="concrete natural-language fixes for the BuilderAgent to apply; "
         "empty if matches",
     )
+
+
+class ObjectAudit(BaseModel):
+    """Deterministic measurements of one built object (no LLM)."""
+
+    name: str
+    dims_m: list[float] = Field(default_factory=list, description="world bbox [x,y,z] in meters")
+    longest_dim_m: float = 0.0
+    lowest_z_m: float = 0.0
+    island_count: int = Field(default=0, description="connected mesh components")
+    scatter_groups: int = Field(
+        default=1,
+        description="islands grouped by bbox overlap; >1 means parts float apart",
+    )
+    has_geometry: bool = True
+
+
+class GeometryAudit(BaseModel):
+    """Programmatic geometry check fed back to the builder alongside the critic.
+
+    Catches mis-sized / scattered / missing / empty geometry with exact numbers,
+    without spending a vision pass. `problems` are written as concrete builder
+    instructions; `ok` is True when none were found.
+    """
+
+    ok: bool = True
+    objects: list[ObjectAudit] = Field(default_factory=list)
+    problems: list[str] = Field(default_factory=list)

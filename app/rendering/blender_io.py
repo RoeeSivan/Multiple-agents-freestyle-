@@ -112,21 +112,37 @@ def clear_scene() -> None:
     run_code(_CLEAR_CODE)
 
 
-def render_png(path) -> str:
-    """Render a clean, framed PNG of the scene for the VisionCritic.
+# Standard angles for the multi-view critic. Each entry is (label, direction);
+# the direction is normalized and scaled by the fitted camera distance. A single
+# front view hides scattered/asymmetric/back-face errors — these five don't.
+VIEW_SET: tuple[tuple[str, tuple[float, float, float]], ...] = (
+    ("front", (0.0, -1.0, 0.35)),
+    ("three_quarter", (1.0, -1.2, 0.7)),
+    ("side", (1.0, 0.0, 0.35)),
+    ("back", (0.0, 1.0, 0.35)),
+    ("top", (0.3, -0.3, 1.4)),
+)
 
-    A plain viewport screenshot captures the editor chrome and the user's
-    arbitrary view angle. Instead we place a camera with simple bounding-sphere
-    math (three-quarter front), guarantee some lighting, and do a fast Eevee
-    render — chrome-free, consistently framed, and showing real materials/world.
+# The single hero angle used for the SMS preview + as the default render_png shot.
+HERO_DIRECTION: tuple[float, float, float] = (1.0, -1.2, 0.7)
+
+
+def _render_shots(shots: list[tuple[str, tuple[float, float, float]]]) -> None:
+    """Render one framed PNG per (filepath, direction) shot.
+
+    A plain viewport screenshot captures editor chrome and the user's arbitrary
+    angle. Instead we compute the scene bounding box ONCE, drop it to the ground
+    and center it in X/Y (exactly like export_glb, so the critic judges the same
+    grounded object the .glb will contain), guarantee lighting, then for each
+    shot place a camera along `direction` at a fitted distance and Eevee-render.
+    The scene is restored afterwards so refine passes are unaffected.
     """
-    from pathlib import Path
-
-    p = str(Path(path).resolve())
+    shots_lit = repr([(fp, list(d)) for (fp, d) in shots])
     out = run_code(
         f"""
 import bpy, math, mathutils
 scene = bpy.context.scene
+shots = {shots_lit}
 meshes = [o for o in bpy.data.objects if o.type == 'MESH']
 if not meshes:
     print("NO_MESH")
@@ -139,9 +155,6 @@ else:
             for i in range(3):
                 mins[i] = min(mins[i], w[i]); maxs[i] = max(maxs[i], w[i])
 
-    # Drop to ground + center in X/Y for the shot, exactly like export_glb, so the
-    # critic judges the same grounded object the .glb will contain (no false
-    # "floating" complaints). Restore afterwards so refine passes are unaffected.
     off = mathutils.Vector((-(mins[0]+maxs[0])/2.0, -(mins[1]+maxs[1])/2.0, -mins[2]))
     tops = [o for o in bpy.data.objects if o.parent is None]
     for o in tops:
@@ -158,9 +171,6 @@ else:
         scene.camera = cam
     fov = min(cam.data.angle, 1.2)
     dist = radius / math.sin(fov / 2.0) * 1.3
-    d = mathutils.Vector((1.0, -1.2, 0.7)); d.normalize()
-    cam.location = center + d * dist
-    cam.rotation_euler = (center - cam.location).to_track_quat('-Z', 'Y').to_euler()
 
     # Guarantee the scene isn't black even without a PolyHaven HDRI.
     if scene.world is None:
@@ -184,18 +194,52 @@ else:
     scene.render.resolution_x = 1024
     scene.render.resolution_y = 768
     scene.render.image_settings.file_format = 'PNG'
-    scene.render.filepath = {p!r}
-    bpy.ops.render.render(write_still=True)
+
+    for fp, dvec in shots:
+        d = mathutils.Vector(dvec); d.normalize()
+        cam.location = center + d * dist
+        cam.rotation_euler = (center - cam.location).to_track_quat('-Z', 'Y').to_euler()
+        scene.render.filepath = fp
+        bpy.ops.render.render(write_still=True)
+
     for o in tops:
         o.location = o.location - off
     bpy.context.view_layer.update()
-    print("SHOT_OK")
+    print("SHOTS_OK")
 """,
-        timeout=180.0,
+        timeout=300.0,
     )
-    if "SHOT_OK" not in out:
+    if "SHOTS_OK" not in out:
         raise BlenderError(f"render produced no image (output: {out!r})")
+
+
+def render_png(path) -> str:
+    """Render a single clean, framed hero PNG (three-quarter front) of the scene."""
+    from pathlib import Path
+
+    p = str(Path(path).resolve())
+    _render_shots([(p, HERO_DIRECTION)])
     return p
+
+
+def render_views(out_dir, basename: str = "view", views=VIEW_SET) -> list[tuple[str, str]]:
+    """Render the scene from several angles for the multi-view critic.
+
+    Returns a list of (label, absolute_png_path), one per view. All views share a
+    single bounding-box/grounding computation, so they frame the object the same.
+    """
+    from pathlib import Path
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    shots: list[tuple[str, tuple[float, float, float]]] = []
+    labelled: list[tuple[str, str]] = []
+    for label, direction in views:
+        p = str((out / f"{basename}_{label}.png").resolve())
+        shots.append((p, direction))
+        labelled.append((label, p))
+    _render_shots(shots)
+    return labelled
 
 
 def export_glb(path) -> str:
