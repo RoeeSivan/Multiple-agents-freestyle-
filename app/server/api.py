@@ -34,6 +34,10 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 # One build at a time per session (texting twice quickly shouldn't race).
 _locks: dict[str, asyncio.Lock] = {}
 
+# Exact (stripped/lowercased) words that wipe the session's built-model memory so
+# the next text builds a fresh scene. "clear a chair" is NOT a reset (still builds).
+_RESET_WORDS = {"clear", "reset", "start over", "/clear", "start fresh"}
+
 
 def _lock(sid: str) -> asyncio.Lock:
     return _locks.setdefault(sid, asyncio.Lock())
@@ -143,6 +147,16 @@ async def handle_inbound(sms: InboundSMS) -> None:
                 reply = "Okay, cancelled. Text me an object to build whenever you're ready."
             else:
                 reply = f"I'm waiting on your photos 📸 Upload them here: {_upload_link(session.sid)}"
+            session.add_turn("agent", reply)
+            await _safe_send(sms.from_number, reply)
+            return
+
+        # Explicit reset: wipe the built-model memory so the next text builds fresh
+        # (no merge into the prior scene). Intercepted before the router so it never
+        # burns an LLM call or a render.
+        if sms.message.strip().lower() in _RESET_WORDS:
+            session.reset()
+            reply = "🧹 Cleared. Text me a new object to build."
             session.add_turn("agent", reply)
             await _safe_send(sms.from_number, reply)
             return

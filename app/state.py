@@ -78,6 +78,16 @@ class Session:
         self.turns.append(Turn(role, text))
         self.updated_at = time.time()
 
+    def reset(self) -> None:
+        """Forget the current build so the next message starts a fresh scene."""
+        self.spec = None
+        self.iterations = 0
+        self.status = "idle"
+        self.awaiting_clarification = False
+        self.pending_request = ""
+        self.intake = None
+        self.updated_at = time.time()
+
 
 class SessionStore:
     def __init__(self) -> None:
